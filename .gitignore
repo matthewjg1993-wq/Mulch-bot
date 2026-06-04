@@ -1,0 +1,6 @@
+data/post_log.json
+data/settings.json
+.env
+__pycache__/
+*.pyc
+media/
