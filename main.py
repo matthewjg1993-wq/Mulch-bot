@@ -660,6 +660,50 @@ def dashboard(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_policy(request: Request):
+    settings = load_settings()
+    name  = settings.get("business_name", "SRF Forestry Mulching")
+    city  = settings.get("city",  "Lexington")
+    state = settings.get("state", "TN")
+    phone = settings.get("phone", "555-555-5555")
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Privacy Policy — {name}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;color:#333;line-height:1.7}}
+h1{{color:#2d6a2d}}h2{{color:#444;margin-top:30px}}a{{color:#2d6a2d}}</style>
+</head><body>
+<h1>Privacy Policy</h1>
+<p><strong>{name}</strong> — {city}, {state}</p>
+<p><em>Last updated: June 2026</em></p>
+
+<h2>1. Information We Collect</h2>
+<p>We do not collect personal information from visitors. Our Facebook page automation tool only accesses our own business Facebook Page to publish posts on our behalf. We do not collect, store, or share data from any users or followers.</p>
+
+<h2>2. How We Use Information</h2>
+<p>Our automated posting tool uses the Facebook Pages API solely to publish business content (photos, videos, and captions) to the <strong>{name}</strong> Facebook Page. No user data is accessed, stored, or processed.</p>
+
+<h2>3. Facebook Data</h2>
+<p>This application uses the Meta/Facebook Graph API to post content to our own business page. We only request the minimum permissions required: <code>pages_manage_posts</code>, <code>pages_show_list</code>, and <code>pages_read_engagement</code>. We do not access any user data, friend lists, messages, or personal profiles.</p>
+
+<h2>4. Third-Party Services</h2>
+<p>We use the following services to operate our business:</p>
+<ul>
+<li><strong>Meta/Facebook</strong> — for business page posting</li>
+<li><strong>Anthropic Claude AI</strong> — for generating post captions (no personal data is sent)</li>
+</ul>
+
+<h2>5. Data Retention</h2>
+<p>We retain records of posts made to our Facebook page for business purposes. No personal user data is retained.</p>
+
+<h2>6. Contact Us</h2>
+<p>If you have any questions about this Privacy Policy, contact us at:</p>
+<p><strong>{name}</strong><br>
+{city}, {state}<br>
+Phone: {phone}</p>
+</body></html>""")
+
+
 @app.get("/health")
 def health():
     return {
