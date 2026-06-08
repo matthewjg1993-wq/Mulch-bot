@@ -388,6 +388,70 @@ def post_to_facebook(media_path: Path, caption: str, is_video: bool) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  FACEBOOK STORY POSTER  (videos only → Stories)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def post_to_facebook_story(media_path: Path) -> dict:
+    """
+    Post a video to Facebook Page Story.
+    Uses the 3-step video story upload:
+      1. Start upload session → get video_id + upload_url
+      2. Upload raw video bytes to upload_url
+      3. Finish → publishes the story
+    """
+    if not FB_PAGE_ID or not FB_PAGE_ACCESS_TOKEN:
+        return {"success": False, "error": "FB credentials not configured"}
+
+    base_url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/video_stories"
+
+    try:
+        file_size = media_path.stat().st_size
+
+        # Step 1 — start upload session
+        r1 = requests.post(base_url, data={
+            "upload_phase":  "start",
+            "access_token":  FB_PAGE_ACCESS_TOKEN,
+        }, timeout=30)
+        d1 = r1.json()
+        print(f"[STORY] Start response: {d1}")
+
+        if "video_id" not in d1 or "upload_url" not in d1:
+            return {"success": False, "error": f"Story start error: {d1}"}
+
+        video_id   = d1["video_id"]
+        upload_url = d1["upload_url"]
+
+        # Step 2 — upload raw video bytes
+        with open(media_path, "rb") as f:
+            r2 = requests.post(upload_url, data=f, headers={
+                "Authorization":  f"OAuth {FB_PAGE_ACCESS_TOKEN}",
+                "Content-Type":   "application/octet-stream",
+                "offset":         "0",
+                "file_size":      str(file_size),
+            }, timeout=180)
+        print(f"[STORY] Upload response: {r2.status_code}")
+
+        # Step 3 — finish / publish
+        r3 = requests.post(base_url, data={
+            "upload_phase":  "finish",
+            "video_id":      video_id,
+            "access_token":  FB_PAGE_ACCESS_TOKEN,
+        }, timeout=30)
+        d3 = r3.json()
+        print(f"[STORY] Finish response: {d3}")
+
+        if d3.get("success"):
+            print(f"[STORY] ✅ Video story posted — video_id: {video_id}")
+            return {"success": True, "video_id": video_id}
+        else:
+            return {"success": False, "error": str(d3)}
+
+    except Exception as e:
+        print(f"[STORY] Exception: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  INSTAGRAM POSTER
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -477,8 +541,11 @@ def post_to_instagram(media_path: Path, caption: str, is_video: bool) -> dict:
 
 def run_post():
     """
-    Main post function — called by scheduler 4x per day.
-    Picks media → generates caption → posts to FB + IG → logs result.
+    Main post function — called by scheduler 2x per day.
+
+    Routing logic:
+      📹 VIDEO  → Facebook Story only  (disappears after 24h, shows at top of feed)
+      📸 PHOTO  → Facebook Feed only   (stays on page permanently, with AI caption)
     """
     if not bot_state["running"]:
         print("[BOT] Paused — skipping scheduled post")
@@ -504,31 +571,33 @@ def run_post():
     category   = media["category"]
     is_video   = media_path.suffix.lower() in VIDEO_EXTS
 
-    print(f"[BOT] Media: {media_path.name} ({category}) | {'VIDEO' if is_video else 'PHOTO'}")
+    print(f"[BOT] Media: {media_path.name} ({category}) | {'VIDEO → STORY' if is_video else 'PHOTO → FEED'}")
 
-    # Generate caption
-    caption = generate_caption(category, settings, is_video)
-    print(f"[BOT] Caption ({len(caption)} chars):\n{caption[:120]}...")
+    if is_video:
+        # ── VIDEO → Facebook Story ──────────────────────────────
+        print("[BOT] Routing video to Facebook Story...")
+        story_result = post_to_facebook_story(media_path)
+        fb_result    = {"success": False, "skipped": "video routed to Story"}
+        ig_result    = {"success": False, "skipped": "Instagram disabled"}
+        log_post(str(media_path), "", category, story_result, ig_result)
+        success = story_result.get("success", False)
+        bot_state["last_post_result"] = "✅ Video → FB Story" if success else f"❌ Story failed: {story_result.get('error','')}"
+        print(f"[BOT] Story result: {story_result}")
 
-    # Post to platforms
-    fb_result = post_to_facebook(media_path, caption, is_video)
-    ig_result = post_to_instagram(media_path, caption, is_video)
+    else:
+        # ── PHOTO → Facebook Feed ───────────────────────────────
+        print("[BOT] Routing photo to Facebook Feed...")
+        caption   = generate_caption(category, settings, is_video=False)
+        print(f"[BOT] Caption ({len(caption)} chars):\n{caption[:120]}...")
+        fb_result = post_to_facebook(media_path, caption, is_video=False)
+        ig_result = {"success": False, "skipped": "Instagram disabled"}
+        log_post(str(media_path), caption, category, fb_result, ig_result)
+        success = fb_result.get("success", False)
+        bot_state["last_post_result"] = "✅ Photo → FB Feed" if success else f"❌ Feed failed: {fb_result.get('error','')}"
+        print(f"[BOT] Feed result: {fb_result}")
 
-    # Log it
-    log_post(str(media_path), caption, category, fb_result, ig_result)
-
-    # Update state
-    today = datetime.now(timezone.utc).date().isoformat()
-    bot_state["posts_today"]    += 1
-    bot_state["last_post_time"]  = datetime.now(timezone.utc).isoformat()
-    bot_state["last_post_result"] = (
-        "✅ Posted to FB + IG" if (fb_result.get("success") and ig_result.get("success"))
-        else "⚠️ Partial" if (fb_result.get("success") or ig_result.get("success"))
-        else "❌ Failed"
-    )
-
-    print(f"[BOT] Facebook: {fb_result}")
-    print(f"[BOT] Instagram: {ig_result}")
+    bot_state["posts_today"]   += 1
+    bot_state["last_post_time"] = datetime.now(timezone.utc).isoformat()
     print(f"[BOT] Result: {bot_state['last_post_result']}")
 
 
