@@ -356,23 +356,44 @@ def post_to_facebook(media_path: Path, caption: str, is_video: bool) -> dict:
 
     try:
         if is_video:
+            # Video → post to page timeline feed
             url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/videos"
             with open(media_path, "rb") as f:
                 resp = requests.post(url, data={
-                    "description":    caption,
-                    "access_token":   FB_PAGE_ACCESS_TOKEN,
+                    "description":  caption,
+                    "published":    "true",
+                    "access_token": FB_PAGE_ACCESS_TOKEN,
                 }, files={"source": f}, timeout=120)
         else:
-            url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photos"
+            # Photo — 2-step: upload then post to feed so it always hits the timeline
+            # Step 1: upload photo unpublished to get a photo ID
+            photo_url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photos"
             with open(media_path, "rb") as f:
-                resp = requests.post(url, data={
-                    "caption":      caption,
+                r1 = requests.post(photo_url, data={
+                    "published":    "false",
                     "access_token": FB_PAGE_ACCESS_TOKEN,
                 }, files={"source": f}, timeout=60)
+            d1 = r1.json()
+            print(f"[FACEBOOK] Photo upload response: {d1}")
+
+            if "id" not in d1:
+                return {"success": False, "error": f"Photo upload failed: {d1}"}
+
+            photo_id = d1["id"]
+
+            # Step 2: post to page feed with photo attached → always appears on timeline
+            import json as _json
+            feed_url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/feed"
+            r2 = requests.post(feed_url, data={
+                "message":        caption,
+                "attached_media": _json.dumps([{"media_fbid": photo_id}]),
+                "access_token":   FB_PAGE_ACCESS_TOKEN,
+            }, timeout=30)
+            resp = r2
 
         data = resp.json()
         if "id" in data:
-            print(f"[FACEBOOK] ✅ Posted — ID: {data['id']}")
+            print(f"[FACEBOOK] ✅ Posted to timeline — ID: {data['id']}")
             return {"success": True, "post_id": data["id"]}
         else:
             print(f"[FACEBOOK] ❌ Error: {data}")
