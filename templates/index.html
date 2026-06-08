@@ -107,14 +107,42 @@
   <div class="panel">
     <h2>🛒 Facebook Marketplace Listing <span style="font-size:12px;color:#888;font-weight:normal">— refreshes every 2 weeks</span></h2>
     <div id="marketplace-age" style="font-size:12px;color:#888;margin-bottom:12px"></div>
-    <div style="display:flex;gap:10px;margin-bottom:14px">
-      <button class="btn btn-green" onclick="copyListing()">📋 Copy Listing</button>
+
+    <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="btn btn-green" onclick="copyListing()">📋 Copy Listing Text</button>
       <button class="btn btn-blue" onclick="refreshListing()">🔄 Generate Fresh</button>
     </div>
-    <div id="marketplace-listing" style="background:#0f3460;border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap;line-height:1.7;color:#ddd">
+
+    <!-- Listing text -->
+    <div id="marketplace-listing" style="background:#0f3460;border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap;line-height:1.7;color:#ddd;margin-bottom:16px">
       <div class="loading">Generating your first listing...</div>
     </div>
-    <div id="copy-confirm" style="color:#4ecca3;font-size:13px;margin-top:8px;display:none">✅ Copied! Now paste it into Facebook Marketplace → Services</div>
+    <div id="copy-confirm" style="color:#4ecca3;font-size:13px;margin-bottom:14px;display:none">✅ Copied! Now paste into Facebook Marketplace → Services</div>
+
+    <!-- Photo suggestions -->
+    <div style="border-top:1px solid #0f3460;padding-top:14px">
+      <div style="font-size:13px;color:#4ecca3;font-weight:bold;margin-bottom:4px">📸 Photos to attach to this listing</div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px">Download these and upload them when posting to Marketplace</div>
+      <div id="marketplace-photos" style="display:flex;flex-wrap:wrap;gap:10px">
+        <div class="loading">Loading photos...</div>
+      </div>
+      <div style="font-size:11px;color:#555;margin-top:10px">
+        💡 Tip: Long-press any photo on mobile to save it, then upload to Marketplace
+      </div>
+    </div>
+
+    <!-- Step by step instructions -->
+    <div style="border-top:1px solid #0f3460;padding-top:14px;margin-top:14px">
+      <div style="font-size:13px;color:#4ecca3;font-weight:bold;margin-bottom:8px">📌 How to post to Marketplace</div>
+      <ol style="font-size:12px;color:#aaa;line-height:2;padding-left:18px">
+        <li>Tap <strong style="color:#fff">Copy Listing Text</strong> above</li>
+        <li>Open Facebook → tap <strong style="color:#fff">Marketplace</strong></li>
+        <li>Tap <strong style="color:#fff">+ Create new listing → Services</strong></li>
+        <li>Paste the text, upload the photos below</li>
+        <li>Set location to <strong style="color:#fff">Lexington, TN</strong></li>
+        <li>Hit <strong style="color:#fff">Publish</strong> ✅</li>
+      </ol>
+    </div>
   </div>
 
   <!-- Recent Posts -->
@@ -231,6 +259,34 @@ async function loadMarketplace() {
       el.innerHTML = '<div class="loading">Generating your first listing... refresh in 15 seconds</div>';
       setTimeout(loadMarketplace, 15000);
     }
+  } catch(e) {}
+  // Load photo suggestions
+  loadMarketplacePhotos();
+}
+
+async function loadMarketplacePhotos() {
+  try {
+    const r = await fetch('/api/media');
+    const d = await r.json();
+    const el = document.getElementById('marketplace-photos');
+    // Only show images (not videos) — pick up to 8, prioritize before_after
+    const photos = d.media.filter(m => m.type === 'image');
+    const beforeAfter = photos.filter(m => m.category === 'before_after');
+    const others = photos.filter(m => m.category !== 'before_after');
+    // before_after first, then others, cap at 8
+    const selected = [...beforeAfter, ...others].slice(0, 8);
+    if (!selected.length) {
+      el.innerHTML = '<div style="font-size:12px;color:#555">No photos uploaded yet — upload job photos above and they\'ll appear here</div>';
+      return;
+    }
+    el.innerHTML = selected.map(m => `
+      <a href="${m.url}" target="_blank" download style="text-decoration:none">
+        <div style="width:100px;background:#0f3460;border-radius:8px;overflow:hidden;border:1px solid #1a4a6a;cursor:pointer">
+          <img src="${m.url}" style="width:100px;height:80px;object-fit:cover;display:block"
+               onerror="this.style.display='none'">
+          <div style="padding:4px 6px;font-size:10px;color:#4ecca3">${m.category}</div>
+        </div>
+      </a>`).join('');
   } catch(e) {}
 }
 
