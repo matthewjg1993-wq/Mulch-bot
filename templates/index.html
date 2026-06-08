@@ -103,6 +103,20 @@
     <div id="upload-status" class="loading"></div>
   </div>
 
+  <!-- Marketplace Listing -->
+  <div class="panel">
+    <h2>🛒 Facebook Marketplace Listing <span style="font-size:12px;color:#888;font-weight:normal">— refreshes every 2 weeks</span></h2>
+    <div id="marketplace-age" style="font-size:12px;color:#888;margin-bottom:12px"></div>
+    <div style="display:flex;gap:10px;margin-bottom:14px">
+      <button class="btn btn-green" onclick="copyListing()">📋 Copy Listing</button>
+      <button class="btn btn-blue" onclick="refreshListing()">🔄 Generate Fresh</button>
+    </div>
+    <div id="marketplace-listing" style="background:#0f3460;border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap;line-height:1.7;color:#ddd">
+      <div class="loading">Generating your first listing...</div>
+    </div>
+    <div id="copy-confirm" style="color:#4ecca3;font-size:13px;margin-top:8px;display:none">✅ Copied! Now paste it into Facebook Marketplace → Services</div>
+  </div>
+
   <!-- Recent Posts -->
   <div class="panel">
     <h2>📋 Recent Posts</h2>
@@ -200,8 +214,43 @@ async function uploadFiles() {
   loadMedia(); loadStatus();
 }
 
+async function loadMarketplace() {
+  try {
+    const r = await fetch('/api/marketplace-listing');
+    const d = await r.json();
+    const el = document.getElementById('marketplace-listing');
+    if (d.listing) {
+      el.textContent = d.listing;
+      if (d.generated_at) {
+        const age = Math.floor((Date.now() - new Date(d.generated_at)) / 86400000);
+        const next = 14 - age;
+        document.getElementById('marketplace-age').textContent =
+          `Generated ${age} day${age !== 1 ? 's' : ''} ago · Next auto-refresh in ${next > 0 ? next : 0} days`;
+      }
+    } else {
+      el.innerHTML = '<div class="loading">Generating your first listing... refresh in 15 seconds</div>';
+      setTimeout(loadMarketplace, 15000);
+    }
+  } catch(e) {}
+}
+
+async function copyListing() {
+  const text = document.getElementById('marketplace-listing').textContent;
+  if (!text || text.includes('Generating')) return;
+  await navigator.clipboard.writeText(text);
+  const confirm = document.getElementById('copy-confirm');
+  confirm.style.display = 'block';
+  setTimeout(() => confirm.style.display = 'none', 4000);
+}
+
+async function refreshListing() {
+  document.getElementById('marketplace-listing').innerHTML = '<div class="loading">Generating fresh listing...</div>';
+  await fetch('/api/marketplace-refresh', {method:'POST'});
+  setTimeout(loadMarketplace, 12000);
+}
+
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia();
+loadStatus(); loadPosts(); loadMedia(); loadMarketplace();
 // Refresh status every 30s
 setInterval(loadStatus, 30000);
 </script>

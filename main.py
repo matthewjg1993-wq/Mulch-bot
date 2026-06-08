@@ -52,8 +52,9 @@ DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "mulchboss")
 BASE_DIR    = Path(__file__).parent
 MEDIA_DIR   = BASE_DIR / "media"
 DATA_DIR    = BASE_DIR / "data"
-POST_LOG    = DATA_DIR / "post_log.json"
-SETTINGS_FILE = DATA_DIR / "settings.json"
+POST_LOG           = DATA_DIR / "post_log.json"
+SETTINGS_FILE      = DATA_DIR / "settings.json"
+MARKETPLACE_FILE   = DATA_DIR / "marketplace_listing.json"
 
 DATA_DIR.mkdir(exist_ok=True)
 MEDIA_DIR.mkdir(exist_ok=True)
@@ -772,6 +773,134 @@ async def generate_caption_endpoint(request: Request):
     settings = load_settings()
     caption  = generate_caption(category, settings)
     return {"caption": caption, "category": category}
+
+
+@app.get("/api/marketplace-listing")
+def get_marketplace_listing():
+    """Get the current Marketplace listing."""
+    return load_marketplace_listing()
+
+
+@app.post("/api/marketplace-refresh")
+def refresh_marketplace_listing():
+    """Manually trigger a fresh Marketplace listing."""
+    import threading
+    threading.Thread(target=run_marketplace_refresh, daemon=True).start()
+    return {"status": "generating", "message": "Fresh listing generating — refresh in 10 seconds"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FACEBOOK MARKETPLACE LISTING GENERATOR  (every 2 weeks)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_marketplace_listing() -> str:
+    """
+    Uses Claude to write a fresh Facebook Marketplace service listing.
+    Falls back to a solid template if API unavailable.
+    """
+    settings = load_settings()
+    city     = settings.get("city",  "Lexington")
+    state    = settings.get("state", "TN")
+    phone    = settings.get("phone", "555-555-5555")
+    name     = settings.get("business_name", "SRF Forestry Mulching")
+
+    if claude:
+        try:
+            prompt = f"""Write a Facebook Marketplace service listing for a forestry mulching business.
+
+Business: {name}
+Location: {city}, {state}
+Phone: {phone}
+
+About forestry mulching: A forestry mulcher is a powerful machine that grinds trees, brush, saplings and overgrowth directly into mulch on-site in a single pass. No hauling debris, no burning. Used for land clearing, pasture reclamation, fence line clearing, right-of-way clearing, fire break creation, and invasive species removal. The mulch stays on the ground protecting soil and preventing erosion.
+
+Write a Marketplace listing that sounds like it was written by the business owner — confident, knowledgeable, genuine. Someone who knows their equipment and their craft.
+
+Format it exactly like this:
+TITLE: [short punchy title, max 10 words]
+
+DESCRIPTION:
+[3-5 sentences about the service — specific, knowledgeable, confident. Mention what jobs we handle. Mention the city/state and surrounding areas. End with call to action and phone number.]
+
+SERVICES OFFERED:
+[bullet list of 6-8 specific services]
+
+SERVICE AREA:
+[city, state and surrounding areas]
+
+CONTACT:
+[phone number and call/text instruction]
+
+Make every listing unique — different angle, different opening, different energy. Never sound like a template."""
+
+            msg = claude.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return msg.content[0].text.strip()
+        except Exception as e:
+            print(f"[MARKETPLACE] Claude error: {e} — using template")
+
+    # Fallback template
+    return f"""TITLE: Forestry Mulching & Land Clearing — {city}, {state}
+
+DESCRIPTION:
+{name} provides professional forestry mulching and land clearing services in {city}, {state} and surrounding areas. Our forestry mulcher grinds trees, brush and overgrowth into mulch on-site in a single pass — no hauling, no burning, just clean usable land. Whether you need a pasture reclaimed, fence lines cleared, or a lot cleared for development, we get it done right. Call or text for a free quote: {phone}
+
+SERVICES OFFERED:
+• Land clearing & brush removal
+• Pasture reclamation
+• Fence line & boundary clearing
+• Right-of-way clearing
+• Fire break creation
+• Invasive species removal
+• Lot clearing for construction
+• Overgrown property cleanup
+
+SERVICE AREA:
+{city}, {state} and surrounding West Tennessee areas
+
+CONTACT:
+Call or text for a FREE quote: {phone}"""
+
+
+def run_marketplace_refresh():
+    """Generate a fresh Marketplace listing and save it — runs every 2 weeks."""
+    print("[MARKETPLACE] Generating fresh listing...")
+    listing = generate_marketplace_listing()
+    data = {
+        "listing":      listing,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "due_date":     "Post this to Facebook Marketplace now",
+    }
+    MARKETPLACE_FILE.write_text(json.dumps(data, indent=2))
+    print("[MARKETPLACE] ✅ Fresh listing saved — check dashboard to copy & post")
+
+
+def load_marketplace_listing() -> dict:
+    if MARKETPLACE_FILE.exists():
+        try:
+            return json.loads(MARKETPLACE_FILE.read_text())
+        except Exception:
+            pass
+    return {"listing": None, "generated_at": None}
+
+
+# Generate one on startup if none exists yet
+if not MARKETPLACE_FILE.exists():
+    import threading
+    threading.Thread(target=run_marketplace_refresh, daemon=True).start()
+
+# Schedule refresh every 14 days at noon UTC
+scheduler.add_job(
+    run_marketplace_refresh,
+    trigger="interval",
+    days=14,
+    id="marketplace_refresh",
+    replace_existing=True,
+)
+print("[SCHEDULER] Marketplace listing refresh scheduled every 14 days")
 
 
 # ── Reset daily post counter at midnight ──────────────────────────────────────
