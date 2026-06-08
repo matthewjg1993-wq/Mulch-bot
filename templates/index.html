@@ -41,6 +41,10 @@
     .upload-area { border: 2px dashed #0f3460; border-radius: 8px; padding: 30px; text-align: center; color: #666; margin-bottom: 12px; }
     select, input { background: #0f3460; border: 1px solid #1a4a6a; color: #eee; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
     .loading { color: #888; font-size: 13px; }
+    .tag-chip { display:inline-flex;align-items:center;gap:5px;background:#1a4a3a;color:#4ecca3;
+      padding:4px 10px;border-radius:20px;font-size:12px;font-weight:bold; }
+    .tag-chip .remove { cursor:pointer;color:#e94560;font-size:14px;line-height:1; }
+    .tag-chip .remove:hover { color:#ff0000; }
   </style>
 </head>
 <body>
@@ -143,6 +147,37 @@
         <li>Hit <strong style="color:#fff">Publish</strong> ✅</li>
       </ol>
     </div>
+  </div>
+
+  <!-- Hashtag Editor -->
+  <div class="panel">
+    <h2>#️⃣ Hashtag Manager</h2>
+    <p style="font-size:12px;color:#888;margin-bottom:14px">These custom tags get added to every post. The bot also auto-adds location + service tags automatically.</p>
+
+    <!-- Custom tags display -->
+    <div style="margin-bottom:14px">
+      <div style="font-size:12px;color:#4ecca3;font-weight:bold;margin-bottom:8px">YOUR CUSTOM TAGS</div>
+      <div id="hashtag-chips" style="display:flex;flex-wrap:wrap;gap:8px;min-height:36px;background:#0f3460;padding:10px;border-radius:8px">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Add new tag -->
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <input id="new-tag-input" type="text" placeholder="#YourTag (# optional)"
+        style="flex:1;min-width:160px"
+        onkeydown="if(event.key==='Enter') addHashtag()">
+      <button class="btn btn-green" onclick="addHashtag()">+ Add Tag</button>
+    </div>
+
+    <!-- Auto tags preview -->
+    <div style="border-top:1px solid #0f3460;padding-top:12px">
+      <div style="font-size:12px;color:#888;margin-bottom:6px">AUTO-ADDED TAGS (always included, can't remove these)</div>
+      <div id="auto-tags-preview" style="font-size:11px;color:#555;line-height:2">Loading...</div>
+    </div>
+
+    <button class="btn btn-green" onclick="saveHashtags()" style="margin-top:14px">💾 Save Hashtags</button>
+    <div id="hashtag-save-msg" style="color:#4ecca3;font-size:13px;margin-top:8px;display:none">✅ Saved! New tags will be used on the next post.</div>
   </div>
 
   <!-- Recent Posts -->
@@ -305,8 +340,70 @@ async function refreshListing() {
   setTimeout(loadMarketplace, 12000);
 }
 
+// ── Hashtag Manager ──────────────────────────────────────
+let currentHashtags = [];
+
+const autoTags = [
+  '#ForestryMulching','#ForestryMulcher','#LandClearing','#BrushClearing',
+  '#LandReclamation','#OvergrownLand','#PastureReclamation','#BrushRemoval',
+  '#LexingtonTN','#LexingtonLandClearing','#TNLandClearing','#TNForestryMulching',
+  '#SRFForestryMulching'
+];
+
+async function loadHashtags() {
+  try {
+    const r = await fetch('/api/settings');
+    const s = await r.json();
+    currentHashtags = s.custom_hashtags || [];
+    renderChips();
+    document.getElementById('auto-tags-preview').textContent = autoTags.join('  ');
+  } catch(e) {}
+}
+
+function renderChips() {
+  const el = document.getElementById('hashtag-chips');
+  if (!currentHashtags.length) {
+    el.innerHTML = '<span style="color:#555;font-size:12px">No custom tags yet — add some above</span>';
+    return;
+  }
+  el.innerHTML = currentHashtags.map((tag, i) =>
+    `<span class="tag-chip">${tag} <span class="remove" onclick="removeHashtag(${i})">×</span></span>`
+  ).join('');
+}
+
+function addHashtag() {
+  const input = document.getElementById('new-tag-input');
+  let tag = input.value.trim();
+  if (!tag) return;
+  if (!tag.startsWith('#')) tag = '#' + tag;
+  // remove spaces, keep camelCase
+  tag = tag.replace(/\s+/g, '');
+  if (!currentHashtags.includes(tag)) {
+    currentHashtags.push(tag);
+    renderChips();
+  }
+  input.value = '';
+  input.focus();
+}
+
+function removeHashtag(index) {
+  currentHashtags.splice(index, 1);
+  renderChips();
+}
+
+async function saveHashtags() {
+  await fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ custom_hashtags: currentHashtags })
+  });
+  const msg = document.getElementById('hashtag-save-msg');
+  msg.style.display = 'block';
+  setTimeout(() => msg.style.display = 'none', 3000);
+}
+
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia(); loadMarketplace();
+loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags();
 // Refresh status every 30s
 setInterval(loadStatus, 30000);
 </script>
