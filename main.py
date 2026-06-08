@@ -13,11 +13,13 @@ import uuid
 import random
 import signal
 import atexit
+import hashlib
+import hmac
 import requests
 import anthropic
 from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request, UploadFile, File, Form
+from fastapi import FastAPI, Request, UploadFile, File, Form, Cookie
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -47,6 +49,25 @@ POST_TO_INSTAGRAM = os.getenv("POST_TO_INSTAGRAM", "true").lower() == "true"
 POSTS_PER_DAY     = int(os.getenv("POSTS_PER_DAY", "2"))
 POST_TIMES        = os.getenv("POST_TIMES", "16:00,01:00").split(",")
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "mulchboss")
+SECRET_KEY         = os.getenv("SECRET_KEY", uuid.uuid4().hex)  # set in Railway for persistence
+
+
+# ── Auth helpers ───────────────────────────────────────────────────────────────
+def make_session_token(password: str) -> str:
+    """Create a signed session token from the password."""
+    return hmac.new(SECRET_KEY.encode(), password.encode(), hashlib.sha256).hexdigest()
+
+def is_authenticated(session: str = None) -> bool:
+    if not session:
+        return False
+    expected = make_session_token(DASHBOARD_PASSWORD)
+    return hmac.compare_digest(session, expected)
+
+def auth_required(request: Request, session: str = Cookie(default=None)):
+    """Returns redirect if not logged in, else None."""
+    if not is_authenticated(session):
+        return RedirectResponse(url="/login", status_code=302)
+    return None
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 BASE_DIR    = Path(__file__).parent
@@ -655,8 +676,69 @@ scheduler = setup_scheduler()
 #  API ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, error: str = None):
+    error_html = '<p style="color:#e94560;margin-top:10px">❌ Wrong password — try again</p>' if error else ''
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head>
+<title>Mulch Boss — Login</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  * {{ box-sizing:border-box; margin:0; padding:0; }}
+  body {{ font-family:Arial,sans-serif; background:#1a1a2e; display:flex;
+    align-items:center; justify-content:center; min-height:100vh; }}
+  .card {{ background:#16213e; border:1px solid #0f3460; border-radius:12px;
+    padding:40px 32px; width:100%; max-width:360px; text-align:center; }}
+  h1 {{ color:#4ecca3; font-size:24px; margin-bottom:6px; }}
+  p {{ color:#888; font-size:13px; margin-bottom:24px; }}
+  input {{ width:100%; background:#0f3460; border:1px solid #1a4a6a; color:#eee;
+    padding:12px 14px; border-radius:8px; font-size:15px; margin-bottom:14px; }}
+  input:focus {{ outline:2px solid #4ecca3; }}
+  button {{ width:100%; background:#4ecca3; color:#1a1a2e; border:none;
+    border-radius:8px; padding:12px; font-size:16px; font-weight:bold; cursor:pointer; }}
+  button:hover {{ opacity:0.88; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🌿 Mulch Boss</h1>
+    <p>SRF Forestry Mulching — Control Panel</p>
+    <form method="POST" action="/login">
+      <input type="password" name="password" placeholder="Enter password" autofocus>
+      <button type="submit">Login</button>
+    </form>
+    {error_html}
+  </div>
+</body></html>""")
+
+
+@app.post("/login")
+async def login(request: Request, password: str = Form(...)):
+    if password == DASHBOARD_PASSWORD:
+        token = make_session_token(password)
+        response = RedirectResponse(url="/", status_code=302)
+        response.set_cookie(
+            key="session",
+            value=token,
+            httponly=True,
+            max_age=60 * 60 * 24 * 30,  # 30 days
+            samesite="lax",
+        )
+        return response
+    return RedirectResponse(url="/login?error=1", status_code=302)
+
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie("session")
+    return response
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
+def dashboard(request: Request, session: str = Cookie(default=None)):
+    if not is_authenticated(session):
+        return RedirectResponse(url="/login", status_code=302)
     return templates.TemplateResponse("index.html", {"request": request})
 
 
@@ -715,8 +797,15 @@ def health():
     }
 
 
+def require_auth(session: str = Cookie(default=None)):
+    """Shared auth check for all API routes."""
+    if not is_authenticated(session):
+        raise __import__('fastapi').HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.get("/api/status")
-def get_status():
+def get_status(session: str = Cookie(default=None)):
+    require_auth(session)
     """Live bot status for dashboard."""
     log      = load_post_log()
     settings = load_settings()
