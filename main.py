@@ -207,12 +207,12 @@ def build_hashtag_set(settings: dict, category: str) -> str:
     state = settings.get("state", "TN")
     name  = settings.get("business_name", "").replace(" ", "")
 
-    # Core service hashtags — same terms competitors use
+    # Core service hashtags — forestry mulching specific
     service_tags = [
-        "#MulchInstall", "#Mulching", "#MulchingService",
-        "#FreshMulch", "#MulchDelivery", "#MulchNearMe",
-        "#LandscapingService", "#YardWork", "#LawnCare",
-        "#CurbAppeal", "#OutdoorLiving", "#HomeImprovement",
+        "#ForestryMulching", "#ForestryMulcher", "#LandClearing",
+        "#BrushClearing", "#LandReclamation", "#OvergrownLand",
+        "#PastureReclamation", "#BrushRemoval", "#TreeClearing",
+        "#LandManagement", "#ErosionControl", "#PropertyClearing",
     ]
 
     # Location hashtags — local search dominance
@@ -257,40 +257,35 @@ def generate_caption(category: str, settings: dict, is_video: bool = False) -> s
 
     # Category descriptions for Claude
     category_context = {
-        "mulching":      "fresh mulch installation — beds filled, clean edges, fresh color",
-        "before_after":  "dramatic before & after yard transformation",
-        "cleanup":       "full yard cleanup — debris removed, edges clean, looking sharp",
-        "edging":        "crisp lawn edging job — clean lines, professional finish",
-        "landscaping":   "landscaping work — property looks great, curb appeal boosted",
-    }.get(category, "yard work job")
+        "mulching":      "forestry mulching job — overgrown land cleared, brush and trees ground down into natural mulch that stays on site, land reclaimed and looking clean",
+        "before_after":  "dramatic before & after — land that was thick with brush, overgrowth or trees is now completely cleared and mulched, transformation is unreal",
+        "cleanup":       "property cleanup — invasive species, dead trees, overgrown brush all cleared and mulched in one pass, land is usable again",
+        "edging":        "clean boundary work — fence lines, pasture edges, right-of-way cleared tight and clean with the forestry mulcher",
+        "landscaping":   "land clearing and mulching — property transformed from overgrown mess to clean usable land, no hauling debris, mulch stays on site feeding the soil",
+    }.get(category, "forestry mulching job — land cleared, brush ground up, property transformed")
 
     if not claude:
         return _fallback_caption(category, settings, hashtags)
 
     try:
-        tone_guide = {
-            "friendly":     "warm, friendly, conversational — like a neighbor talking to a neighbor",
-            "professional": "professional and confident — emphasize quality and reliability",
-            "bold":         "bold and punchy — short sentences, strong energy, hype the results",
-        }.get(tone, "friendly")
+        prompt = f"""Write a Facebook post for a forestry mulching business called {name} based in {city}, {state}.
 
-        prompt = f"""Write a Facebook/Instagram post for a local mulching and landscaping company.
+A forestry mulcher is a powerful machine that grinds trees, brush, and overgrowth directly into mulch on-site — no hauling, no burning, one machine does it all. It's used for land clearing, pasture reclamation, fire break creation, fence line clearing, right-of-way clearing, and invasive species removal. The mulch left behind protects soil, prevents erosion, and naturally decomposes to enrich the land.
 
-Business: {name}
-Location: {city}, {state}
-Job shown: {category_context}
-{"This is a video post." if is_video else "This is a photo post."}
-Tone: {tone_guide}
+Job shown in this post: {category_context}
+
+Write the post in the voice of the business owner — someone who has spent years doing this work, knows the land, knows the equipment, and takes real pride in the results. Confident, knowledgeable, genuine. NOT salesy. NOT corporate. Sounds like a real person who loves their craft.
 
 Rules:
-- 2-3 sentences MAX — people scroll fast
-- Start with a strong hook about the result or transformation
-- Mention {city}, {state} or the local area naturally (not forced)
+- 2-4 sentences — tight and punchy, people scroll fast
+- Lead with something specific about the job or the result — not a generic opener
+- Use real forestry/land clearing language naturally (mulcher, overgrowth, brush, land clearing, reclaim, etc.) — don't force it, just let it come through
+- Mention {city}, {state} or surrounding area naturally at least once
 - End with this exact CTA on its own line: {cta}
-- Do NOT include hashtags (added separately)
-- Do NOT use emojis in excess — max 2
-- Make it sound human, not like a robot wrote it
-- Every post must sound different — no two the same
+- NO hashtags (added separately)
+- Max 1-2 emojis, only if they fit naturally
+- Every post must be completely different — vary the angle, the hook, the details
+- NEVER start with "We" — start with something vivid about the work or result
 
 Write ONLY the post text, nothing else."""
 
@@ -309,36 +304,36 @@ Write ONLY the post text, nothing else."""
 
 def _fallback_caption(category: str, settings: dict, hashtags: str) -> str:
     """Template captions used when Claude is unavailable."""
-    city  = settings.get("city", "Jackson")
+    city  = settings.get("city", "Lexington")
     state = settings.get("state", "TN")
     phone = settings.get("phone", "555-555-5555")
-    name  = settings.get("business_name", "us")
+    name  = settings.get("business_name", "SRF Forestry Mulching")
 
     templates = {
         "mulching": [
-            f"Fresh mulch makes all the difference 🌿 Just finished another install in {city}, {state}. Your yard could look this good too. Call/text for a FREE quote: {phone}",
-            f"Nothing protects your beds and boosts curb appeal like fresh mulch. Another happy customer in {city}! Call/text us: {phone}",
-            f"We just transformed another yard in {city}, {state} with a fresh mulch install. Ready for yours? Call/text: {phone}",
+            f"That overgrowth didn't stand a chance. 🌿 Forestry mulcher went in and turned years of brush into clean ground in a single pass. Land is ready to use. Serving {city}, {state} and surrounding areas.\n\nCall/text for a FREE quote: {phone}",
+            f"One machine. No hauling. No burning. Just clean land. Forestry mulching is the most efficient way to reclaim overgrown property in {city}, {state} — and the mulch stays on site to protect and feed your soil.\n\nCall/text: {phone}",
+            f"Thick brush, downed trees, invasive growth — gone. The forestry mulcher grinds it all down and leaves behind a clean, mulched surface that actually improves the land over time. Another satisfied property owner in {city}, {state}.\n\nFree quotes: {phone}",
         ],
         "before_after": [
-            f"The difference is unreal 👀 Before and after in {city}, {state}. Ready to transform your yard? Call/text: {phone}",
-            f"This is why we love what we do. Complete transformation in {city}. Call/text {name} for your FREE quote: {phone}",
-            f"Left side vs right side. Before and after says it all. Serving {city} and surrounding areas. Call: {phone}",
+            f"This is what we do. Land that was completely locked up by overgrowth, brush and trees — cleared, mulched and reclaimed in one day. No debris hauled off, no burning, just results. {city}, {state}.\n\nCall/text for a FREE quote: {phone}",
+            f"Before the mulcher, this property was unusable. After — clean ground, healthy soil, and land you can actually work with again. That's the power of forestry mulching. Serving {city}, {state} and surrounding areas.\n\nCall/text: {phone}",
+            f"Left side was what the customer started with. Right side is what they got. Forestry mulching transforms overgrown land fast — and the ground mulch left behind is good for the soil. {city}, {state}.\n\nFree quotes: {phone}",
         ],
         "cleanup": [
-            f"Clean yard, happy homeowner ✅ Just wrapped up a full cleanup in {city}, {state}. Call/text us to get yours on the schedule: {phone}",
-            f"From overgrown to spotless. Yard cleanup done right in {city}. Book yours today: {phone}",
-            f"We take the work off your hands and leave your yard looking sharp. Serving {city}, {state}. Call/text: {phone}",
+            f"Fence lines buried in brush. Pasture edges swallowed by invasive growth. Not anymore. The forestry mulcher clears it clean and tight — no hand cutting, no hauling. Serving {city}, {state}.\n\nCall/text: {phone}",
+            f"Property cleanup done right means the land is actually better after we leave. The mulch we leave behind protects against erosion and breaks down naturally into the soil. {city}, {state} and surrounding areas.\n\nFree quotes: {phone}",
+            f"Overgrown land costs you money and use of your property. One pass with the forestry mulcher and you've got clean, usable ground again. Fast, efficient, no mess to deal with. Serving {city}, {state}.\n\nCall/text: {phone}",
         ],
         "edging": [
-            f"Clean lines = sharp yard. Just finished edging in {city}, {state}. Details make the difference. Call/text: {phone}",
-            f"Crisp edges, professional results. Another satisfied customer in {city}. Call/text for a quote: {phone}",
-            f"The secret to a professional-looking yard? Clean edges. Serving {city} and surrounding areas. Call: {phone}",
+            f"Clean fence lines and property boundaries make a real difference — not just how it looks, but how the land functions. The forestry mulcher gets in tight where other equipment can't. {city}, {state}.\n\nCall/text for a FREE quote: {phone}",
+            f"Right-of-way clearing, fence line cleanup, pasture boundary work — we get it done clean and fast. No hand crews, no burning. Just the mulcher and clean results. Serving {city}, {state}.\n\nCall/text: {phone}",
+            f"Tight lines. Clean edges. That's how we leave every property in {city}, {state}. Forestry mulching handles the boundary work that other equipment leaves behind.\n\nFree quotes: {phone}",
         ],
         "landscaping": [
-            f"Another yard upgraded in {city}, {state} 🌿 Curb appeal is everything. Call/text us for your FREE quote: {phone}",
-            f"We take pride in every property we touch. Serving {city}, {state} and surrounding areas. Call/text: {phone}",
-            f"Your yard is the first thing people see. Make it count. Serving {city}. Call/text: {phone}",
+            f"Land clearing doesn't have to mean leaving a mess behind. The forestry mulcher grinds everything down and the mulch stays on the ground — protecting the soil, preventing erosion, breaking down naturally. {city}, {state}.\n\nCall/text: {phone}",
+            f"Reclaiming overgrown land in {city}, {state}. Whether it's pasture reclamation, lot clearing or property cleanup — one machine handles it all and leaves the land better than we found it.\n\nFree quotes: {phone}",
+            f"This is forestry mulching done right. No burning. No hauling. One efficient machine that clears land and improves it at the same time. Serving {city}, {state} and surrounding areas.\n\nCall/text: {phone}",
         ],
     }
 
