@@ -27,11 +27,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Business Config ────────────────────────────────────────────────────────────
-BUSINESS_NAME    = os.getenv("BUSINESS_NAME",  "Your Mulching Co.")
+BUSINESS_NAME    = os.getenv("BUSINESS_NAME",  "SRF Forestry Mulching")
 BUSINESS_PHONE   = os.getenv("BUSINESS_PHONE", "555-555-5555")
-BUSINESS_CITY    = os.getenv("BUSINESS_CITY",  "Jackson")
+BUSINESS_CITY    = os.getenv("BUSINESS_CITY",  "Lexington")
 BUSINESS_STATE   = os.getenv("BUSINESS_STATE", "TN")
-SERVICE_AREA     = os.getenv("SERVICE_AREA",   "Jackson, TN and surrounding areas")
+SERVICE_AREA     = os.getenv("SERVICE_AREA",   "Lexington, TN and surrounding areas")
 
 # ── Meta API ───────────────────────────────────────────────────────────────────
 FB_PAGE_ID           = os.getenv("FB_PAGE_ID", "")
