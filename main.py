@@ -569,7 +569,12 @@ scheduler = setup_scheduler()
 #  API ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
+def dashboard(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/health")
 def health():
     return {
         "status":      "Mulch Boss running",

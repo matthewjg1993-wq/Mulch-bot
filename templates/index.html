@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mulch Boss — Control Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+    header { background: #16213e; padding: 16px 24px; display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #0f3460; }
+    header h1 { font-size: 22px; color: #4ecca3; }
+    header span { font-size: 13px; color: #888; }
+    .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card { background: #16213e; border-radius: 10px; padding: 18px; border: 1px solid #0f3460; }
+    .card .label { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 6px; }
+    .card .value { font-size: 28px; font-weight: bold; color: #4ecca3; }
+    .card .sub { font-size: 12px; color: #aaa; margin-top: 4px; }
+    .panel { background: #16213e; border-radius: 10px; padding: 20px; border: 1px solid #0f3460; margin-bottom: 20px; }
+    .panel h2 { font-size: 16px; color: #4ecca3; margin-bottom: 16px; border-bottom: 1px solid #0f3460; padding-bottom: 8px; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
+    .btn-green { background: #4ecca3; color: #1a1a2e; }
+    .btn-red { background: #e94560; color: #fff; }
+    .btn-blue { background: #0f3460; color: #4ecca3; border: 1px solid #4ecca3; }
+    .btn:hover { opacity: 0.85; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .dot-green { background: #4ecca3; }
+    .dot-red { background: #e94560; }
+    .post-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #0f3460; }
+    .post-row:last-child { border-bottom: none; }
+    .post-status { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; white-space: nowrap; }
+    .posted { background: #1a4a3a; color: #4ecca3; }
+    .failed { background: #4a1a1a; color: #e94560; }
+    .post-info { flex: 1; }
+    .post-info .caption { font-size: 13px; color: #ccc; margin-top: 4px; }
+    .post-info .meta { font-size: 11px; color: #666; margin-top: 4px; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    #toggle-status { font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px; color: #888; border-bottom: 1px solid #0f3460; }
+    td { padding: 8px; border-bottom: 1px solid #0f3460; }
+    .upload-area { border: 2px dashed #0f3460; border-radius: 8px; padding: 30px; text-align: center; color: #666; margin-bottom: 12px; }
+    select, input { background: #0f3460; border: 1px solid #1a4a6a; color: #eee; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+    .loading { color: #888; font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🌿 Mulch Boss</h1>
+  <span id="header-status">Loading...</span>
+</header>
+
+<div class="container">
+
+  <!-- Stats row -->
+  <div class="cards">
+    <div class="card">
+      <div class="label">Posts Today</div>
+      <div class="value" id="posts-today">—</div>
+      <div class="sub">scheduled posts</div>
+    </div>
+    <div class="card">
+      <div class="label">Total Posts</div>
+      <div class="value" id="total-posts">—</div>
+      <div class="sub">all time</div>
+    </div>
+    <div class="card">
+      <div class="label">Media Library</div>
+      <div class="value" id="media-count">—</div>
+      <div class="sub">photos & videos</div>
+    </div>
+    <div class="card">
+      <div class="label">Last Post</div>
+      <div class="value" style="font-size:14px;padding-top:6px" id="last-post">—</div>
+      <div class="sub" id="last-result">—</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="panel">
+    <h2>⚙️ Controls</h2>
+    <div class="actions">
+      <button class="btn btn-green" onclick="postNow()">📤 Post Now</button>
+      <button class="btn btn-blue" id="toggle-btn" onclick="toggleBot()">⏸ Pause Bot</button>
+    </div>
+    <div id="toggle-status" class="loading"></div>
+  </div>
+
+  <!-- Upload -->
+  <div class="panel">
+    <h2>📁 Upload Photos / Videos</h2>
+    <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <select id="upload-category">
+        <option value="mulching">Mulching</option>
+        <option value="before_after">Before &amp; After</option>
+        <option value="cleanup">Cleanup</option>
+        <option value="edging">Edging</option>
+        <option value="landscaping">Landscaping</option>
+      </select>
+      <input type="file" id="file-input" multiple accept="image/*,video/*">
+      <button class="btn btn-green" onclick="uploadFiles()">Upload</button>
+    </div>
+    <div id="upload-status" class="loading"></div>
+  </div>
+
+  <!-- Recent Posts -->
+  <div class="panel">
+    <h2>📋 Recent Posts</h2>
+    <div id="posts-list"><div class="loading">Loading posts...</div></div>
+  </div>
+
+  <!-- Media Library -->
+  <div class="panel">
+    <h2>🖼️ Media Library</h2>
+    <div id="media-list"><div class="loading">Loading media...</div></div>
+  </div>
+
+</div>
+
+<script>
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    document.getElementById('posts-today').textContent = d.posts_today ?? '0';
+    document.getElementById('total-posts').textContent = d.total_posts ?? '0';
+    document.getElementById('media-count').textContent = d.media_count ?? '0';
+    document.getElementById('last-post').textContent = d.last_post_time
+      ? new Date(d.last_post_time).toLocaleTimeString() : 'Never';
+    document.getElementById('last-result').textContent = d.last_post_result ?? '—';
+    const running = d.running && d.auto_post;
+    document.getElementById('header-status').innerHTML =
+      `<span class="status-dot ${running ? 'dot-green' : 'dot-red'}"></span>${running ? 'Bot Running' : 'Bot Paused'}`;
+    document.getElementById('toggle-btn').textContent = running ? '⏸ Pause Bot' : '▶ Resume Bot';
+  } catch(e) { console.error(e); }
+}
+
+async function loadPosts() {
+  try {
+    const r = await fetch('/api/posts?limit=20');
+    const d = await r.json();
+    const el = document.getElementById('posts-list');
+    if (!d.posts.length) { el.innerHTML = '<div class="loading">No posts yet.</div>'; return; }
+    el.innerHTML = d.posts.map(p => `
+      <div class="post-row">
+        <span class="post-status ${p.status === 'posted' ? 'posted' : 'failed'}">${p.status.toUpperCase()}</span>
+        <div class="post-info">
+          <strong>${p.category}</strong>
+          <div class="caption">${p.caption.substring(0, 120)}...</div>
+          <div class="meta">${new Date(p.timestamp).toLocaleString()} · ${p.media_file.split('/').pop()}</div>
+        </div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+async function loadMedia() {
+  try {
+    const r = await fetch('/api/media');
+    const d = await r.json();
+    const el = document.getElementById('media-list');
+    if (!d.media.length) { el.innerHTML = '<div class="loading">No media uploaded yet.</div>'; return; }
+    const byCategory = {};
+    d.media.forEach(m => { if (!byCategory[m.category]) byCategory[m.category] = []; byCategory[m.category].push(m); });
+    el.innerHTML = Object.entries(byCategory).map(([cat, items]) =>
+      `<div style="margin-bottom:12px">
+        <div style="color:#4ecca3;font-size:12px;text-transform:uppercase;margin-bottom:6px">${cat} (${items.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${items.map(m => `<div style="background:#0f3460;padding:6px 10px;border-radius:4px;font-size:12px">${m.name} <span style="color:#888">${m.size_kb}kb</span></div>`).join('')}
+        </div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+async function postNow() {
+  if (!confirm('Post to Facebook right now?')) return;
+  const r = await fetch('/api/post-now', {method:'POST'});
+  const d = await r.json();
+  alert(d.message || 'Posting...');
+  setTimeout(loadStatus, 5000);
+}
+
+async function toggleBot() {
+  const r = await fetch('/api/toggle-bot', {method:'POST'});
+  const d = await r.json();
+  document.getElementById('toggle-status').textContent = `Bot is now ${d.status}`;
+  loadStatus();
+}
+
+async function uploadFiles() {
+  const files = document.getElementById('file-input').files;
+  const category = document.getElementById('upload-category').value;
+  if (!files.length) { alert('Select files first'); return; }
+  const form = new FormData();
+  form.append('category', category);
+  for (const f of files) form.append('files', f);
+  document.getElementById('upload-status').textContent = 'Uploading...';
+  const r = await fetch('/api/upload', {method:'POST', body: form});
+  const d = await r.json();
+  document.getElementById('upload-status').textContent = `✅ Uploaded ${d.count} file(s)`;
+  loadMedia(); loadStatus();
+}
+
+// Load everything on start
+loadStatus(); loadPosts(); loadMedia();
+// Refresh status every 30s
+setInterval(loadStatus, 30000);
+</script>
+</body>
+</html>
