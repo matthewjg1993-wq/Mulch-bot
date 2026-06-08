@@ -217,18 +217,18 @@ def build_hashtag_set(settings: dict, category: str) -> str:
 
     # Location hashtags — local search dominance
     location_tags = [
-        f"#{city}TN", f"#{city}Landscaping", f"#{city}LawnCare",
-        f"#{city}YardWork", f"#{city}{state}", f"#{state}Landscaping",
-        f"#{city}HomeServices", f"#{city}Outdoors",
+        f"#{city}TN", f"#{city}{state}", f"#{city}LandClearing",
+        f"#{city}ForestryMulching", f"#{state}LandClearing", f"#{state}ForestryMulching",
+        f"#{city}PropertyClearing",
     ]
 
     # Category-specific tags
     category_tags = {
-        "before_after":  ["#BeforeAndAfter", "#Transformation", "#YardGoals", "#OutdoorTransformation"],
-        "mulching":      ["#MulchLife", "#Mulch", "#GardenBeds", "#LandscapingIdeas"],
-        "cleanup":       ["#YardCleanup", "#SpringCleanup", "#FallCleanup", "#PropertyMaintenance"],
-        "edging":        ["#CleanEdges", "#LawnEdging", "#CrispLines", "#ProfessionalLandscaping"],
-        "landscaping":   ["#LandscapeDesign", "#GreenThumb", "#PropertyValue", "#BeautifulYard"],
+        "before_after":  ["#BeforeAndAfter", "#Transformation", "#LandTransformation"],
+        "mulching":      ["#ForestryMulch", "#LandReclaimed", "#ClearedLand"],
+        "cleanup":       ["#PropertyCleanup", "#BrushCleared", "#LandRestoration"],
+        "edging":        ["#FenceLineClearing", "#RightOfWay", "#CleanBoundaries"],
+        "landscaping":   ["#LandCleared", "#PropertyValue", "#UsableLand"],
     }.get(category, [])
 
     # Custom hashtags from settings
