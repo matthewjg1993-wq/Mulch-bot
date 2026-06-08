@@ -701,8 +701,8 @@ def login_page(request: Request, error: str = None):
 </head>
 <body>
   <div class="card">
-    <h1>🌿 Mulch Boss</h1>
-    <p>SRF Forestry Mulching — Control Panel</p>
+    <h1>🌿 SRF Forestry Mulching Bot</h1>
+    <p>Control Panel — Lexington, TN</p>
     <form method="POST" action="/login">
       <input type="password" name="password" placeholder="Enter password" autofocus>
       <button type="submit">Login</button>
