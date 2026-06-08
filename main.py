@@ -44,8 +44,8 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # ── Bot Settings ───────────────────────────────────────────────────────────────
 POST_TO_FACEBOOK  = os.getenv("POST_TO_FACEBOOK",  "true").lower() == "true"
 POST_TO_INSTAGRAM = os.getenv("POST_TO_INSTAGRAM", "true").lower() == "true"
-POSTS_PER_DAY     = int(os.getenv("POSTS_PER_DAY", "4"))
-POST_TIMES        = os.getenv("POST_TIMES", "12:00,17:00,22:30,01:00").split(",")
+POSTS_PER_DAY     = int(os.getenv("POSTS_PER_DAY", "2"))
+POST_TIMES        = os.getenv("POST_TIMES", "16:00,01:00").split(",")
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "mulchboss")
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
