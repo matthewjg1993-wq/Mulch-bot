@@ -71,8 +71,8 @@ def auth_required(request: Request, session: str = Cookie(default=None)):
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 BASE_DIR    = Path(__file__).parent
-MEDIA_DIR   = BASE_DIR / "media"
-DATA_DIR    = BASE_DIR / "data"
+MEDIA_DIR   = Path(os.getenv("MEDIA_DIR", str(BASE_DIR / "media")))
+DATA_DIR    = Path(os.getenv("DATA_DIR",  str(BASE_DIR / "data")))
 POST_LOG           = DATA_DIR / "post_log.json"
 SETTINGS_FILE      = DATA_DIR / "settings.json"
 MARKETPLACE_FILE   = DATA_DIR / "marketplace_listing.json"
