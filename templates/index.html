@@ -108,6 +108,17 @@
     <div id="upload-status" class="loading"></div>
   </div>
 
+  <!-- Voice & Vocab -->
+  <div class="panel">
+    <h2>🗣️ Voice Samples <span style="font-size:12px;color:#888;font-weight:normal">— teach the bot how you talk</span></h2>
+    <p style="font-size:13px;color:#aaa;margin-bottom:10px">Paste examples of how you'd naturally describe a job — texts, voice memos typed out, anything in your own words. The bot will match your exact style.</p>
+    <textarea id="vocab-input" rows="8" style="width:100%;background:#0a1628;color:#eee;border:1px solid #1e3a5f;border-radius:6px;padding:10px;font-size:13px;line-height:1.6;resize:vertical" placeholder="Example: Just got done clearin out a big piece of property out past Lexington, man that thing was tore up bad. Had cedar trees and privet thick as anything. Mulcher handled it good tho, owner was real happy with how it come out. Might could get yours done this week if you call us up..."></textarea>
+    <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
+      <button class="btn btn-green" onclick="saveVocab()">💾 Save Voice Samples</button>
+      <span id="vocab-status" style="font-size:12px;color:#4ecca3"></span>
+    </div>
+  </div>
+
   <!-- Marketplace Listing -->
   <div class="panel">
     <h2>🛒 Facebook Marketplace Listing <span style="font-size:12px;color:#888;font-weight:normal">— refreshes every 2 weeks</span></h2>
@@ -403,8 +414,32 @@ async function saveHashtags() {
   setTimeout(() => msg.style.display = 'none', 3000);
 }
 
+async function loadVocab() {
+  try {
+    const r = await fetch('/api/vocab');
+    const d = await r.json();
+    const el = document.getElementById('vocab-input');
+    if (el && d.vocab) el.value = d.vocab;
+  } catch(e) {}
+}
+
+async function saveVocab() {
+  const text = document.getElementById('vocab-input').value;
+  const st   = document.getElementById('vocab-status');
+  try {
+    const r = await fetch('/api/vocab', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({vocab: text})
+    });
+    const d = await r.json();
+    st.textContent = d.status === 'saved' ? `✅ Saved (${d.chars} chars)` : '❌ Error saving';
+    setTimeout(() => { st.textContent = ''; }, 3000);
+  } catch(e) { st.textContent = '❌ Error'; }
+}
+
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags();
+loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags(); loadVocab();
 // Refresh status every 30s
 setInterval(loadStatus, 30000);
 </script>

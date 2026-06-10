@@ -76,6 +76,7 @@ DATA_DIR    = Path(os.getenv("DATA_DIR",  str(BASE_DIR / "data")))
 POST_LOG           = DATA_DIR / "post_log.json"
 SETTINGS_FILE      = DATA_DIR / "settings.json"
 MARKETPLACE_FILE   = DATA_DIR / "marketplace_listing.json"
+VOCAB_FILE         = DATA_DIR / "vocab.txt"
 
 DATA_DIR.mkdir(exist_ok=True)
 MEDIA_DIR.mkdir(exist_ok=True)
@@ -289,27 +290,37 @@ def generate_caption(category: str, settings: dict, is_video: bool = False) -> s
     if not claude:
         return _fallback_caption(category, settings, hashtags)
 
+    # Load custom vocab samples if uploaded
+    vocab_section = ""
+    if VOCAB_FILE.exists():
+        vocab_text = VOCAB_FILE.read_text(encoding="utf-8").strip()
+        if vocab_text:
+            vocab_section = f"\nHere are real examples of how this business owner actually talks — match this voice exactly:\n---\n{vocab_text}\n---\n"
+
     try:
-        prompt = f"""You are the owner of {name}, a forestry mulching business in {city}, {state}. Write a casual Facebook post about this job like you're just sharing it with your followers — the way a real person would type it on their phone after a long day of work.
+        prompt = f"""You are the owner of {name}, a forestry mulching business in {city}, {state}. You've lived in West Tennessee your whole life. Write a Facebook post about this job the way you'd actually type it on your phone.
 
 Job: {category_context}
+{vocab_section}
+VOICE — You are a working man from Lexington, Henderson County TN. Write EXACTLY like this:
+- Drop your g's: workin', clearin', haulin', fixin', mulchin'
+- Use "fixin' to" (about to), "might could" (might be able to), "ain't", "y'all", "gonna", "gotta", "wanna"
+- Say "piece of property" not "property", "tore up" for overgrown/rough condition, "wide open" for cleared land
+- Start with what happened: "Just finished up...", "Had a property out...", "Man you shoulda seen...", "Got called out to..."
+- Tell it like a short story — the situation, what you did, how it turned out
+- Reference real West Tennessee areas naturally: Henderson County, Lexington, Parsons, Savannah, Jackson area
+- Sound proud of the work but matter-of-fact about it — "that's what we do", "we get 'er done"
+- SHORT — 2-4 sentences max. Working people don't write essays.
 
-Sound like yourself — tired, proud, real. Short sentences. No fluff. The kind of post where someone reads it and thinks "this guy actually does this work." Throw in a specific detail that makes it feel like a real job, not a template.
+NEVER use: transform, seamless, solution, efficiently, comprehensive, thrilled, innovative, pleased to announce, our team
+NEVER use perfect grammar or punctuation
+NEVER sound like an ad
 
-- 2-3 sentences max, keep it short
-- Casual tone, like texting a friend about a good day at work
-- Mention {city} or somewhere nearby
-- End with: {cta}
-- No hashtags
-- No emojis unless it really fits
-- Do NOT make it sound like an ad or marketing copy
-- Do NOT use perfect grammar — write how a working person actually talks
-- Never use words like "transform", "seamless", "solution", "reclaim", "efficiently"
-
-Just write the post, nothing else."""
+End with this on its own line: {cta}
+No hashtags. Write the post only, nothing else."""
 
         msg = claude.messages.create(
-            model="claude-haiku-4-5-20251001",   # fast + cheap for captions
+            model="claude-haiku-4-5-20251001",
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -954,6 +965,25 @@ async def generate_caption_endpoint(request: Request):
 def get_marketplace_listing():
     """Get the current Marketplace listing."""
     return load_marketplace_listing()
+
+
+@app.get("/api/vocab")
+async def get_vocab(request: Request):
+    """Get current vocab/voice samples."""
+    auth = auth_required(request)
+    if auth: return auth
+    text = VOCAB_FILE.read_text(encoding="utf-8").strip() if VOCAB_FILE.exists() else ""
+    return {"vocab": text}
+
+@app.post("/api/vocab")
+async def save_vocab(request: Request):
+    """Save custom vocab/voice samples."""
+    auth = auth_required(request)
+    if auth: return auth
+    body = await request.json()
+    text = body.get("vocab", "").strip()
+    VOCAB_FILE.write_text(text, encoding="utf-8")
+    return {"status": "saved", "chars": len(text)}
 
 
 @app.post("/api/marketplace-refresh")
