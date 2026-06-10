@@ -426,6 +426,27 @@ def post_to_facebook(media_path: Path, caption: str, is_video: bool) -> dict:
 #  FACEBOOK STORY POSTER  (videos only → Stories)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def post_photo_to_story(media_path: Path) -> dict:
+    """Post a photo to Facebook Page Story."""
+    if not FB_PAGE_ID or not FB_PAGE_ACCESS_TOKEN:
+        return {"success": False, "error": "FB credentials not configured"}
+    try:
+        url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photo_stories"
+        with open(media_path, "rb") as f:
+            r = requests.post(url, data={"access_token": FB_PAGE_ACCESS_TOKEN},
+                              files={"source": f}, timeout=60)
+        d = r.json()
+        if d.get("success") or "post_id" in d:
+            print(f"[STORY] ✅ Photo story posted")
+            return {"success": True}
+        else:
+            print(f"[STORY] ❌ Photo story error: {d}")
+            return {"success": False, "error": str(d)}
+    except Exception as e:
+        print(f"[STORY] Photo story exception: {e}")
+        return {"success": False, "error": str(e)}
+
+
 def post_to_facebook_story(media_path: Path) -> dict:
     """
     Post a video to Facebook Page Story.
@@ -606,30 +627,33 @@ def run_post():
     category   = media["category"]
     is_video   = media_path.suffix.lower() in VIDEO_EXTS
 
-    print(f"[BOT] Media: {media_path.name} ({category}) | {'VIDEO → STORY' if is_video else 'PHOTO → FEED'}")
+    print(f"[BOT] Media: {media_path.name} ({category}) | {'VIDEO' if is_video else 'PHOTO'} → FEED + STORY")
 
+    # Generate caption for feed post
+    caption = generate_caption(category, settings, is_video=is_video)
+    print(f"[BOT] Caption ({len(caption)} chars):\n{caption[:120]}...")
+
+    # ── Post to Feed (timeline) ─────────────────────────────────
+    print("[BOT] Posting to Facebook Feed...")
+    fb_result = post_to_facebook(media_path, caption, is_video=is_video)
+    print(f"[BOT] Feed result: {fb_result}")
+
+    # ── Post to Story ───────────────────────────────────────────
+    print("[BOT] Posting to Facebook Story...")
     if is_video:
-        # ── VIDEO → Facebook Story ──────────────────────────────
-        print("[BOT] Routing video to Facebook Story...")
         story_result = post_to_facebook_story(media_path)
-        fb_result    = {"success": False, "skipped": "video routed to Story"}
-        ig_result    = {"success": False, "skipped": "Instagram disabled"}
-        log_post(str(media_path), "", category, story_result, ig_result)
-        success = story_result.get("success", False)
-        bot_state["last_post_result"] = "✅ Video → FB Story" if success else f"❌ Story failed: {story_result.get('error','')}"
-        print(f"[BOT] Story result: {story_result}")
-
     else:
-        # ── PHOTO → Facebook Feed ───────────────────────────────
-        print("[BOT] Routing photo to Facebook Feed...")
-        caption   = generate_caption(category, settings, is_video=False)
-        print(f"[BOT] Caption ({len(caption)} chars):\n{caption[:120]}...")
-        fb_result = post_to_facebook(media_path, caption, is_video=False)
-        ig_result = {"success": False, "skipped": "Instagram disabled"}
-        log_post(str(media_path), caption, category, fb_result, ig_result)
-        success = fb_result.get("success", False)
-        bot_state["last_post_result"] = "✅ Photo → FB Feed" if success else f"❌ Feed failed: {fb_result.get('error','')}"
-        print(f"[BOT] Feed result: {fb_result}")
+        story_result = post_photo_to_story(media_path)
+    print(f"[BOT] Story result: {story_result}")
+
+    ig_result = {"success": False, "skipped": "Instagram disabled"}
+    log_post(str(media_path), caption, category, fb_result, ig_result)
+
+    feed_ok  = fb_result.get("success", False)
+    story_ok = story_result.get("success", False)
+    bot_state["last_post_result"] = (
+        f"{'✅' if feed_ok else '❌'} Feed | {'✅' if story_ok else '❌'} Story"
+    )
 
     bot_state["posts_today"]   += 1
     bot_state["last_post_time"] = datetime.now(timezone.utc).isoformat()
