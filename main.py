@@ -290,26 +290,23 @@ def generate_caption(category: str, settings: dict, is_video: bool = False) -> s
         return _fallback_caption(category, settings, hashtags)
 
     try:
-        prompt = f"""Write a Facebook post for a forestry mulching business called {name} based in {city}, {state}.
+        prompt = f"""You are the owner of {name}, a forestry mulching business in {city}, {state}. Write a casual Facebook post about this job like you're just sharing it with your followers — the way a real person would type it on their phone after a long day of work.
 
-A forestry mulcher is a powerful machine that grinds trees, brush, and overgrowth directly into mulch on-site — no hauling, no burning, one machine does it all. It's used for land clearing, pasture reclamation, fire break creation, fence line clearing, right-of-way clearing, and invasive species removal. The mulch left behind protects soil, prevents erosion, and naturally decomposes to enrich the land.
+Job: {category_context}
 
-Job shown in this post: {category_context}
+Sound like yourself — tired, proud, real. Short sentences. No fluff. The kind of post where someone reads it and thinks "this guy actually does this work." Throw in a specific detail that makes it feel like a real job, not a template.
 
-Write the post in the voice of the business owner — someone who has spent years doing this work, knows the land, knows the equipment, and takes real pride in the results. Confident, knowledgeable, genuine. NOT salesy. NOT corporate. Sounds like a real person who loves their craft.
+- 2-3 sentences max, keep it short
+- Casual tone, like texting a friend about a good day at work
+- Mention {city} or somewhere nearby
+- End with: {cta}
+- No hashtags
+- No emojis unless it really fits
+- Do NOT make it sound like an ad or marketing copy
+- Do NOT use perfect grammar — write how a working person actually talks
+- Never use words like "transform", "seamless", "solution", "reclaim", "efficiently"
 
-Rules:
-- 2-4 sentences — tight and punchy, people scroll fast
-- Lead with something specific about the job or the result — not a generic opener
-- Use real forestry/land clearing language naturally (mulcher, overgrowth, brush, land clearing, reclaim, etc.) — don't force it, just let it come through
-- Mention {city}, {state} or surrounding area naturally at least once
-- End with this exact CTA on its own line: {cta}
-- NO hashtags (added separately)
-- Max 1-2 emojis, only if they fit naturally
-- Every post must be completely different — vary the angle, the hook, the details
-- NEVER start with "We" — start with something vivid about the work or result
-
-Write ONLY the post text, nothing else."""
+Just write the post, nothing else."""
 
         msg = claude.messages.create(
             model="claude-haiku-4-5-20251001",   # fast + cheap for captions
