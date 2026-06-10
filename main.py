@@ -1133,18 +1133,14 @@ def get_marketplace_listing():
 
 
 @app.get("/api/vocab")
-async def get_vocab(request: Request):
-    """Get current vocab/voice samples."""
-    auth = auth_required(request)
-    if auth: return auth
+async def get_vocab(session: str = Cookie(default=None)):
+    require_auth(session)
     text = VOCAB_FILE.read_text(encoding="utf-8").strip() if VOCAB_FILE.exists() else ""
     return {"vocab": text}
 
 @app.post("/api/vocab")
-async def save_vocab(request: Request):
-    """Save custom vocab/voice samples."""
-    auth = auth_required(request)
-    if auth: return auth
+async def save_vocab(request: Request, session: str = Cookie(default=None)):
+    require_auth(session)
     body = await request.json()
     text = body.get("vocab", "").strip()
     VOCAB_FILE.write_text(text, encoding="utf-8")
