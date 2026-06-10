@@ -107,6 +107,18 @@ bot_state = {
     "errors_today":  0,
 }
 
+# ── Pending post (approval queue) ──────────────────────────────────────────────
+pending_post: dict = {
+    "active":       False,
+    "media_path":   None,
+    "media_url":    None,
+    "caption":      None,
+    "category":     None,
+    "is_video":     False,
+    "generated_at": None,
+    "expires_at":   None,   # Unix timestamp — auto-posts when passed
+}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  POST LOG — tracks every post ever made
@@ -704,64 +716,24 @@ def post_to_instagram(media_path: Path, caption: str, is_video: bool) -> dict:
 #  CORE POSTING FUNCTION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def run_post():
-    """
-    Main post function — called by scheduler 2x per day.
-
-    Routing logic:
-      📹 VIDEO  → Facebook Story only  (disappears after 24h, shows at top of feed)
-      📸 PHOTO  → Facebook Feed only   (stays on page permanently, with AI caption)
-    """
-    if not bot_state["running"]:
-        print("[BOT] Paused — skipping scheduled post")
-        return
-
-    settings = load_settings()
-    if not settings.get("auto_post", True):
-        print("[BOT] Auto-post disabled — skipping")
-        return
-
+def _execute_post(media_path: Path, caption: str, category: str, is_video: bool):
+    """Upload and publish a post to Facebook feed + story. Used by both approval and post-now."""
     print(f"\n{'='*55}")
-    print(f"[BOT] Scheduled post firing — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
+    print(f"[BOT] Posting — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
+    print(f"[BOT] {media_path.name} ({category}) | {'VIDEO' if is_video else 'PHOTO'}")
     print(f"{'='*55}")
 
-    # Pick a media file
-    media = pick_media()
-    if not media:
-        print("[BOT] ❌ No media found — upload photos/videos to the media folder")
-        bot_state["last_post_result"] = "failed: no media"
-        return
-
-    media_path = media["path"]
-    category   = media["category"]
-    is_video   = media_path.suffix.lower() in VIDEO_EXTS
-
-    print(f"[BOT] Media: {media_path.name} ({category}) | {'VIDEO' if is_video else 'PHOTO'} → FEED + STORY")
-
-    # Generate caption for feed post
-    caption = generate_caption(category, settings, is_video=is_video)
-    print(f"[BOT] Caption ({len(caption)} chars):\n{caption[:120]}...")
-
-    # Apply logo watermark
     post_path = prepare_media_with_logo(media_path, is_video)
     used_logo = post_path != media_path
     if used_logo:
         print(f"[LOGO] Watermarked → {post_path.name}")
 
-    # ── Post to Feed (timeline) ─────────────────────────────────
-    print("[BOT] Posting to Facebook Feed...")
     fb_result = post_to_facebook(post_path, caption, is_video=is_video)
     print(f"[BOT] Feed result: {fb_result}")
 
-    # ── Post to Story ───────────────────────────────────────────
-    print("[BOT] Posting to Facebook Story...")
-    if is_video:
-        story_result = post_to_facebook_story(post_path)
-    else:
-        story_result = post_photo_to_story(post_path)
+    story_result = post_to_facebook_story(post_path) if is_video else post_photo_to_story(post_path)
     print(f"[BOT] Story result: {story_result}")
 
-    # Clean up temp logo file
     if used_logo and post_path.exists():
         post_path.unlink()
 
@@ -770,43 +742,146 @@ def run_post():
 
     feed_ok  = fb_result.get("success", False)
     story_ok = story_result.get("success", False)
-    bot_state["last_post_result"] = (
-        f"{'✅' if feed_ok else '❌'} Feed | {'✅' if story_ok else '❌'} Story"
-    )
-
+    bot_state["last_post_result"] = f"{'✅' if feed_ok else '❌'} Feed | {'✅' if story_ok else '❌'} Story"
     bot_state["posts_today"]   += 1
     bot_state["last_post_time"] = datetime.now(timezone.utc).isoformat()
     print(f"[BOT] Result: {bot_state['last_post_result']}")
+
+
+def generate_pending_post():
+    """
+    Called 15 min before each scheduled post time.
+    Picks media + writes caption → stores as pending for dashboard approval.
+    If a pending post is already waiting, skip (don't overwrite it).
+    """
+    if not bot_state["running"]:
+        return
+    settings = load_settings()
+    if not settings.get("auto_post", True):
+        return
+    if pending_post["active"]:
+        print("[PENDING] Already have a pending post — skipping generation")
+        return
+
+    media = pick_media()
+    if not media:
+        print("[PENDING] ❌ No media found")
+        bot_state["last_post_result"] = "failed: no media"
+        return
+
+    media_path = media["path"]
+    category   = media["category"]
+    is_video   = media_path.suffix.lower() in VIDEO_EXTS
+    caption    = generate_caption(category, settings, is_video=is_video)
+
+    relative  = str(media_path).replace(str(MEDIA_DIR), "").replace("\\", "/").lstrip("/")
+    media_url = f"/media/{relative}"
+
+    now        = datetime.now(timezone.utc)
+    expires_ts = now.timestamp() + 15 * 60   # 15 minutes
+
+    pending_post.update({
+        "active":       True,
+        "media_path":   str(media_path),
+        "media_url":    media_url,
+        "caption":      caption,
+        "category":     category,
+        "is_video":     is_video,
+        "generated_at": now.isoformat(),
+        "expires_at":   expires_ts,
+    })
+    print(f"[PENDING] ✅ Preview ready — approve in dashboard within 15 min or it auto-posts")
+
+
+def check_pending_expiry():
+    """Runs every 30s — auto-posts the pending post if the 15-min window has passed."""
+    if not pending_post["active"]:
+        return
+    if datetime.now(timezone.utc).timestamp() >= pending_post["expires_at"]:
+        print("[PENDING] ⏰ Window expired — auto-posting")
+        _fire_pending()
+
+
+def _fire_pending():
+    """Execute and clear the pending post."""
+    if not pending_post["active"]:
+        return
+    media_path = Path(pending_post["media_path"])
+    caption    = pending_post["caption"]
+    category   = pending_post["category"]
+    is_video   = pending_post["is_video"]
+    pending_post["active"] = False
+    import threading
+    threading.Thread(
+        target=_execute_post,
+        args=(media_path, caption, category, is_video),
+        daemon=True,
+    ).start()
+
+
+def run_post():
+    """Manual 'Post Now' — bypasses approval, posts immediately."""
+    if not bot_state["running"]:
+        print("[BOT] Paused — skipping")
+        return
+    settings = load_settings()
+    media = pick_media()
+    if not media:
+        bot_state["last_post_result"] = "failed: no media"
+        return
+    media_path = media["path"]
+    category   = media["category"]
+    is_video   = media_path.suffix.lower() in VIDEO_EXTS
+    caption    = generate_caption(category, settings, is_video=is_video)
+    _execute_post(media_path, caption, category, is_video)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SCHEDULER SETUP
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _preview_time(post_time_str: str) -> tuple:
+    """Return (hour, minute) 15 minutes before the given HH:MM string."""
+    h, m = map(int, post_time_str.strip().split(":"))
+    total = h * 60 + m - 15
+    if total < 0:
+        total += 24 * 60
+    return total // 60, total % 60
+
+
 def setup_scheduler():
     """Set up the posting schedule from settings."""
-    settings = load_settings()
+    settings   = load_settings()
     post_times = settings.get("post_times", POST_TIMES)
 
     scheduler = BackgroundScheduler()
 
     for t in post_times:
         try:
-            hour, minute = map(int, t.strip().split(":"))
+            ph, pm = _preview_time(t)
+            # Generate preview 15 min before post time
             scheduler.add_job(
-                run_post,
+                generate_pending_post,
                 trigger="cron",
-                hour=hour,
-                minute=minute,
-                id=f"post_{hour}_{minute}",
+                hour=ph, minute=pm,
+                id=f"preview_{ph}_{pm}",
                 replace_existing=True,
             )
-            print(f"[SCHEDULER] Post scheduled at {t} UTC daily")
+            print(f"[SCHEDULER] Preview at {ph:02d}:{pm:02d} UTC → auto-post at {t} UTC")
         except Exception as e:
             print(f"[SCHEDULER] Bad time format '{t}': {e}")
 
+    # Check every 30s for expired pending posts
+    scheduler.add_job(
+        check_pending_expiry,
+        trigger="interval",
+        seconds=30,
+        id="expiry_check",
+        replace_existing=True,
+    )
+
     scheduler.start()
-    print(f"[SCHEDULER] ✅ {len(post_times)} daily posts scheduled")
+    print(f"[SCHEDULER] ✅ {len(post_times)} daily posts scheduled (with 15-min approval window)")
     return scheduler
 
 scheduler = setup_scheduler()
@@ -1083,9 +1158,49 @@ def delete_media(category: str, filename: str):
     return JSONResponse({"error": "File not found"}, status_code=404)
 
 
+@app.get("/api/pending-post")
+def get_pending_post(session: str = Cookie(default=None)):
+    require_auth(session)
+    if not pending_post["active"]:
+        return {"active": False}
+    now        = datetime.now(timezone.utc).timestamp()
+    seconds_left = max(0, int(pending_post["expires_at"] - now))
+    return {
+        "active":       True,
+        "media_url":    pending_post["media_url"],
+        "caption":      pending_post["caption"],
+        "category":     pending_post["category"],
+        "is_video":     pending_post["is_video"],
+        "generated_at": pending_post["generated_at"],
+        "seconds_left": seconds_left,
+    }
+
+
+@app.post("/api/approve-post")
+def approve_post(session: str = Cookie(default=None)):
+    require_auth(session)
+    if not pending_post["active"]:
+        return {"status": "no_pending", "message": "No pending post"}
+    print("[PENDING] ✅ Approved by user — posting now")
+    _fire_pending()
+    return {"status": "approved", "message": "Posting now"}
+
+
+@app.post("/api/deny-post")
+def deny_post(session: str = Cookie(default=None)):
+    require_auth(session)
+    if not pending_post["active"]:
+        return {"status": "no_pending"}
+    pending_post["active"] = False
+    print("[PENDING] ❌ Denied by user — skipping post")
+    bot_state["last_post_result"] = "❌ Denied by user"
+    return {"status": "denied", "message": "Post skipped"}
+
+
 @app.post("/api/post-now")
-def post_now():
-    """Manually trigger a post immediately."""
+def post_now(session: str = Cookie(default=None)):
+    """Manually trigger a post immediately (bypasses approval)."""
+    require_auth(session)
     import threading
     threading.Thread(target=run_post, daemon=True).start()
     return {"status": "posting", "message": "Post firing now — check /api/status in 10 seconds"}

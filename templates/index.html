@@ -81,6 +81,36 @@
     </div>
   </div>
 
+  <!-- Pending Post Approval -->
+  <div class="panel" id="approval-panel" style="display:none;border:2px solid #f0a500">
+    <h2 style="color:#f0a500">⏳ Post Waiting for Approval
+      <span id="approval-countdown" style="font-size:14px;color:#eee;font-weight:normal;margin-left:10px"></span>
+    </h2>
+    <p style="font-size:13px;color:#aaa;margin-bottom:14px">Review this post before it goes live. If you don't respond it will auto-post when the timer hits zero.</p>
+
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <!-- Media preview -->
+      <div style="flex:0 0 auto;max-width:280px">
+        <div id="approval-media" style="background:#0a1628;border-radius:8px;overflow:hidden;min-height:120px;display:flex;align-items:center;justify-content:center">
+          <span style="color:#555;font-size:13px">Loading preview...</span>
+        </div>
+        <div id="approval-category" style="font-size:11px;color:#888;text-transform:uppercase;margin-top:6px;text-align:center"></div>
+      </div>
+
+      <!-- Caption preview -->
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px">Caption</div>
+        <div id="approval-caption" style="font-size:13px;color:#ddd;background:#0a1628;border-radius:8px;padding:12px;line-height:1.6;max-height:180px;overflow-y:auto;white-space:pre-wrap"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-green" style="font-size:15px;padding:12px 28px" onclick="approvePost()">✅ Approve & Post</button>
+      <button class="btn btn-red"   style="font-size:15px;padding:12px 28px" onclick="denyPost()">❌ Skip This Post</button>
+      <span id="approval-action-status" style="font-size:13px;color:#4ecca3"></span>
+    </div>
+  </div>
+
   <!-- Controls -->
   <div class="panel">
     <h2>⚙️ Controls</h2>
@@ -492,6 +522,71 @@ async function saveVocab() {
   } catch(e) { st.textContent = '❌ Error'; }
 }
 
+// ── Approval panel ────────────────────────────────────────────────────────────
+let _countdownTimer = null;
+
+async function loadPendingPost() {
+  try {
+    const r = await fetch('/api/pending-post');
+    const d = await r.json();
+    const panel = document.getElementById('approval-panel');
+    if (!d.active) {
+      panel.style.display = 'none';
+      clearInterval(_countdownTimer);
+      return;
+    }
+    panel.style.display = 'block';
+
+    // Media preview
+    const mediaEl = document.getElementById('approval-media');
+    if (d.is_video) {
+      mediaEl.innerHTML = `<video src="${d.media_url}" style="max-width:280px;max-height:200px;border-radius:6px" controls muted></video>`;
+    } else {
+      mediaEl.innerHTML = `<img src="${d.media_url}" style="max-width:280px;max-height:200px;object-fit:cover;border-radius:6px">`;
+    }
+    document.getElementById('approval-category').textContent = d.category.replace('_',' ');
+    document.getElementById('approval-caption').textContent  = d.caption;
+
+    // Countdown
+    clearInterval(_countdownTimer);
+    let secs = d.seconds_left;
+    function tick() {
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      const el = document.getElementById('approval-countdown');
+      if (el) el.textContent = secs > 0
+        ? `— auto-posts in ${m}:${String(s).padStart(2,'0')}`
+        : '— posting now...';
+      if (secs <= 0) clearInterval(_countdownTimer);
+      secs--;
+    }
+    tick();
+    _countdownTimer = setInterval(tick, 1000);
+  } catch(e) {}
+}
+
+async function approvePost() {
+  const st = document.getElementById('approval-action-status');
+  st.textContent = 'Posting...';
+  try {
+    const r = await fetch('/api/approve-post', { method: 'POST' });
+    const d = await r.json();
+    st.textContent = '✅ Approved — posting now!';
+    clearInterval(_countdownTimer);
+    setTimeout(() => { loadPendingPost(); loadStatus(); }, 3000);
+  } catch(e) { st.textContent = '❌ Error'; }
+}
+
+async function denyPost() {
+  const st = document.getElementById('approval-action-status');
+  try {
+    await fetch('/api/deny-post', { method: 'POST' });
+    st.textContent = '❌ Post skipped';
+    clearInterval(_countdownTimer);
+    setTimeout(() => { loadPendingPost(); loadStatus(); }, 1500);
+  } catch(e) { st.textContent = '❌ Error'; }
+}
+
 function setCorner(btn) {
   document.querySelectorAll('.corner-btn').forEach(b => b.classList.remove('active-corner'));
   btn.classList.add('active-corner');
@@ -566,9 +661,10 @@ async function uploadLogo(file) {
 }
 
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings();
-// Refresh status every 30s
+loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings(); loadPendingPost();
+// Refresh status every 30s, pending post every 10s
 setInterval(loadStatus, 30000);
+setInterval(loadPendingPost, 10000);
 </script>
 </body>
 </html>
