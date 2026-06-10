@@ -219,50 +219,78 @@ def pick_media() -> dict | None:
 #  LOGO OVERLAY — watermarks every photo/video before posting
 # ══════════════════════════════════════════════════════════════════════════════
 
-LOGO_PATH = DATA_DIR / "logo.png"
+LOGO_PATH         = DATA_DIR / "logo.png"
+LOGO_SETTINGS_FILE = DATA_DIR / "logo_settings.json"
+
+def load_logo_settings() -> dict:
+    defaults = {"position": "bottom-right", "size_pct": 25}
+    if LOGO_SETTINGS_FILE.exists():
+        try:
+            defaults.update(json.loads(LOGO_SETTINGS_FILE.read_text()))
+        except Exception:
+            pass
+    return defaults
+
+def _logo_xy(base_w: int, base_h: int, logo_w: int, logo_h: int, position: str) -> tuple:
+    margin_x = max(8, int(base_w * 0.02))
+    margin_y = max(8, int(base_h * 0.02))
+    if position == "top-left":
+        return margin_x, margin_y
+    if position == "top-right":
+        return base_w - logo_w - margin_x, margin_y
+    if position == "bottom-left":
+        return margin_x, base_h - logo_h - margin_y
+    # default: bottom-right
+    return base_w - logo_w - margin_x, base_h - logo_h - margin_y
+
+def _ffmpeg_overlay_expr(position: str, size_pct: int) -> str:
+    scale = size_pct / 100
+    if position == "top-left":
+        return f"[1:v]scale=iw*{scale}:-1[logo];[0:v][logo]overlay=W*0.02:H*0.02"
+    if position == "top-right":
+        return f"[1:v]scale=iw*{scale}:-1[logo];[0:v][logo]overlay=W-w-W*0.02:H*0.02"
+    if position == "bottom-left":
+        return f"[1:v]scale=iw*{scale}:-1[logo];[0:v][logo]overlay=W*0.02:H-h-H*0.02"
+    # default: bottom-right
+    return f"[1:v]scale=iw*{scale}:-1[logo];[0:v][logo]overlay=W-w-W*0.02:H-h-H*0.02"
 
 def _apply_logo_to_image(media_path: Path) -> Path:
-    """Composite logo onto a photo (bottom-right, 25% width). Returns temp path."""
     from PIL import Image
+    cfg = load_logo_settings()
+    size_pct = cfg.get("size_pct", 25)
+    position = cfg.get("position", "bottom-right")
 
     with Image.open(media_path).convert("RGBA") as base:
         with Image.open(LOGO_PATH).convert("RGBA") as logo:
-            # Scale logo to 25% of image width
-            logo_w = max(80, int(base.width * 0.25))
+            logo_w = max(80, int(base.width * size_pct / 100))
             logo_h = int(logo.height * logo_w / logo.width)
             logo   = logo.resize((logo_w, logo_h), Image.LANCZOS)
-
-            # Bottom-right with 2% margin
-            margin = max(8, int(base.width * 0.02))
-            x = base.width  - logo_w - margin
-            y = base.height - logo_h - margin
-
-            out = base.copy()
+            x, y   = _logo_xy(base.width, base.height, logo_w, logo_h, position)
+            out    = base.copy()
             out.paste(logo, (x, y), logo)
-
             tmp = media_path.parent / f"_logo_{media_path.name}"
             if tmp.suffix.lower() in {".jpg", ".jpeg"}:
                 out = out.convert("RGB")
             out.save(tmp, quality=95)
             return tmp
 
-
 def _apply_logo_to_video(media_path: Path) -> Path:
-    """Overlay logo onto a video using FFmpeg (bottom-right corner)."""
-    tmp = media_path.parent / f"_logo_{media_path.stem}.mp4"
+    cfg      = load_logo_settings()
+    position = cfg.get("position", "bottom-right")
+    size_pct = cfg.get("size_pct", 25)
+    tmp      = media_path.parent / f"_logo_{media_path.stem}.mp4"
     cmd = [
         "ffmpeg", "-y",
         "-i", str(media_path),
         "-i", str(LOGO_PATH),
-        "-filter_complex",
-        "[1:v]scale=iw*0.20:-1[logo];[0:v][logo]overlay=W-w-W*0.02:H-h-H*0.02",
+        "-filter_complex", _ffmpeg_overlay_expr(position, size_pct),
         "-codec:a", "copy",
         str(tmp),
     ]
     result = subprocess.run(cmd, capture_output=True, timeout=300)
     if result.returncode != 0:
         print(f"[LOGO] FFmpeg error: {result.stderr.decode()[:300]}")
-        return media_path  # fall back to original if ffmpeg fails
+        return media_path
     return tmp
 
 
@@ -994,6 +1022,23 @@ def logo_status(session: str = Cookie(default=None)):
         return {"uploaded": True, "size_kb": round(LOGO_PATH.stat().st_size / 1024, 1)}
     return {"uploaded": False}
 
+
+@app.get("/api/logo-settings")
+def get_logo_settings(session: str = Cookie(default=None)):
+    require_auth(session)
+    return load_logo_settings()
+
+@app.post("/api/logo-settings")
+async def save_logo_settings_endpoint(request: Request, session: str = Cookie(default=None)):
+    require_auth(session)
+    data = await request.json()
+    cfg  = load_logo_settings()
+    if "position" in data and data["position"] in {"top-left","top-right","bottom-left","bottom-right"}:
+        cfg["position"] = data["position"]
+    if "size_pct" in data:
+        cfg["size_pct"] = max(5, min(50, int(data["size_pct"])))
+    LOGO_SETTINGS_FILE.write_text(json.dumps(cfg, indent=2))
+    return {"saved": True, "settings": cfg}
 
 @app.get("/data-logo")
 def serve_logo(session: str = Cookie(default=None)):

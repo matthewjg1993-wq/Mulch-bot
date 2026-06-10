@@ -110,7 +110,7 @@
 
   <!-- Logo Watermark -->
   <div class="panel">
-    <h2>🖼️ Business Logo <span style="font-size:12px;color:#888;font-weight:normal">— watermarked on every post (bottom-right)</span></h2>
+    <h2>🖼️ Business Logo <span style="font-size:12px;color:#888;font-weight:normal">— watermarked on every post</span></h2>
     <div id="logo-status-bar" style="font-size:13px;color:#888;margin-bottom:12px">Checking...</div>
     <div class="upload-area" id="logo-drop" style="padding:20px" onclick="document.getElementById('logo-file').click()">
       <div id="logo-preview" style="display:none;margin-bottom:10px">
@@ -120,8 +120,47 @@
       <div style="font-size:12px;color:#666;margin-top:4px">Use a PNG with transparent background for best results</div>
       <input type="file" id="logo-file" accept=".png,.jpg,.jpeg" style="display:none" onchange="uploadLogo(this.files[0])">
     </div>
-    <div id="logo-upload-status" style="font-size:13px;color:#4ecca3"></div>
+
+    <!-- Position + Size controls -->
+    <div style="margin-top:14px">
+      <div style="font-size:13px;color:#aaa;margin-bottom:10px;font-weight:bold">Logo Position & Size</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+
+        <!-- Corner picker grid -->
+        <div>
+          <div style="font-size:11px;color:#666;margin-bottom:6px;text-transform:uppercase">Corner</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;width:160px" id="corner-grid">
+            <button class="corner-btn" data-pos="top-left"     onclick="setCorner(this)">↖ Top Left</button>
+            <button class="corner-btn" data-pos="top-right"    onclick="setCorner(this)">Top Right ↗</button>
+            <button class="corner-btn" data-pos="bottom-left"  onclick="setCorner(this)">↙ Bot Left</button>
+            <button class="corner-btn active-corner" data-pos="bottom-right" onclick="setCorner(this)">Bot Right ↘</button>
+          </div>
+        </div>
+
+        <!-- Size slider -->
+        <div style="flex:1;min-width:140px">
+          <div style="font-size:11px;color:#666;margin-bottom:6px;text-transform:uppercase">Size — <span id="logo-size-label">25%</span> of image width</div>
+          <input type="range" id="logo-size" min="5" max="50" value="25"
+            style="width:100%;accent-color:#4ecca3"
+            oninput="document.getElementById('logo-size-label').textContent=this.value+'%'">
+        </div>
+
+        <button class="btn btn-green" onclick="saveLogoSettings()" style="white-space:nowrap">💾 Save</button>
+        <span id="logo-pos-status" style="font-size:12px;color:#4ecca3"></span>
+      </div>
+    </div>
+
+    <div id="logo-upload-status" style="font-size:13px;color:#4ecca3;margin-top:8px"></div>
   </div>
+
+  <style>
+    .corner-btn {
+      background:#0f3460; border:1px solid #1a4a6a; color:#aaa;
+      border-radius:6px; padding:7px 6px; font-size:11px; cursor:pointer; text-align:center;
+    }
+    .corner-btn:hover { border-color:#4ecca3; color:#eee; }
+    .active-corner { background:#1a4a3a; border-color:#4ecca3; color:#4ecca3; font-weight:bold; }
+  </style>
 
   <!-- Voice & Vocab -->
   <div class="panel">
@@ -453,6 +492,43 @@ async function saveVocab() {
   } catch(e) { st.textContent = '❌ Error'; }
 }
 
+function setCorner(btn) {
+  document.querySelectorAll('.corner-btn').forEach(b => b.classList.remove('active-corner'));
+  btn.classList.add('active-corner');
+}
+
+async function loadLogoSettings() {
+  try {
+    const r = await fetch('/api/logo-settings');
+    const d = await r.json();
+    // Set active corner
+    const pos = d.position || 'bottom-right';
+    document.querySelectorAll('.corner-btn').forEach(b => {
+      b.classList.toggle('active-corner', b.dataset.pos === pos);
+    });
+    // Set size slider
+    const sz = d.size_pct || 25;
+    document.getElementById('logo-size').value = sz;
+    document.getElementById('logo-size-label').textContent = sz + '%';
+  } catch(e) {}
+}
+
+async function saveLogoSettings() {
+  const active = document.querySelector('.active-corner');
+  const position = active ? active.dataset.pos : 'bottom-right';
+  const size_pct = parseInt(document.getElementById('logo-size').value);
+  const st = document.getElementById('logo-pos-status');
+  try {
+    await fetch('/api/logo-settings', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ position, size_pct })
+    });
+    st.textContent = '✅ Saved';
+    setTimeout(() => { st.textContent = ''; }, 3000);
+  } catch(e) { st.textContent = '❌ Error'; }
+}
+
 async function loadLogoStatus() {
   try {
     const r = await fetch('/api/logo-status');
@@ -490,7 +566,7 @@ async function uploadLogo(file) {
 }
 
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags(); loadVocab(); loadLogoStatus();
+loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings();
 // Refresh status every 30s
 setInterval(loadStatus, 30000);
 </script>
