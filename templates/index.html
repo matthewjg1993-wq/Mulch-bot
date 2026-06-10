@@ -108,6 +108,21 @@
     <div id="upload-status" class="loading"></div>
   </div>
 
+  <!-- Logo Watermark -->
+  <div class="panel">
+    <h2>🖼️ Business Logo <span style="font-size:12px;color:#888;font-weight:normal">— watermarked on every post (bottom-right)</span></h2>
+    <div id="logo-status-bar" style="font-size:13px;color:#888;margin-bottom:12px">Checking...</div>
+    <div class="upload-area" id="logo-drop" style="padding:20px" onclick="document.getElementById('logo-file').click()">
+      <div id="logo-preview" style="display:none;margin-bottom:10px">
+        <img id="logo-img" src="" style="max-height:80px;max-width:240px;object-fit:contain;border-radius:4px">
+      </div>
+      <div>📎 Click to upload logo (PNG or JPG recommended)</div>
+      <div style="font-size:12px;color:#666;margin-top:4px">Use a PNG with transparent background for best results</div>
+      <input type="file" id="logo-file" accept=".png,.jpg,.jpeg" style="display:none" onchange="uploadLogo(this.files[0])">
+    </div>
+    <div id="logo-upload-status" style="font-size:13px;color:#4ecca3"></div>
+  </div>
+
   <!-- Voice & Vocab -->
   <div class="panel">
     <h2>🗣️ Voice Samples <span style="font-size:12px;color:#888;font-weight:normal">— teach the bot how you talk</span></h2>
@@ -438,8 +453,44 @@ async function saveVocab() {
   } catch(e) { st.textContent = '❌ Error'; }
 }
 
+async function loadLogoStatus() {
+  try {
+    const r = await fetch('/api/logo-status');
+    const d = await r.json();
+    const bar = document.getElementById('logo-status-bar');
+    if (d.uploaded) {
+      bar.innerHTML = `✅ Logo uploaded (${d.size_kb} KB) — will be watermarked on every post`;
+      bar.style.color = '#4ecca3';
+      document.getElementById('logo-img').src = '/data-logo?' + Date.now();
+      document.getElementById('logo-preview').style.display = 'block';
+    } else {
+      bar.textContent = '⚠️ No logo uploaded yet — posts will go out without a watermark';
+      bar.style.color = '#f0a500';
+    }
+  } catch(e) {}
+}
+
+async function uploadLogo(file) {
+  if (!file) return;
+  const st = document.getElementById('logo-upload-status');
+  st.textContent = 'Uploading...';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const r = await fetch('/api/upload-logo', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.saved) {
+      st.textContent = `✅ Logo saved (${d.size_kb} KB) — watermark active on all future posts`;
+      loadLogoStatus();
+    } else {
+      st.textContent = `❌ ${d.error || 'Upload failed'}`;
+    }
+  } catch(e) { st.textContent = '❌ Upload error'; }
+  setTimeout(() => { st.textContent = ''; }, 5000);
+}
+
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags(); loadVocab();
+loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags(); loadVocab(); loadLogoStatus();
 // Refresh status every 30s
 setInterval(loadStatus, 30000);
 </script>

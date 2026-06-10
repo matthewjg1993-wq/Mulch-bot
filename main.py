@@ -15,6 +15,7 @@ import signal
 import atexit
 import hashlib
 import hmac
+import subprocess
 import requests
 import anthropic
 from pathlib import Path
@@ -212,6 +213,75 @@ def pick_media() -> dict | None:
         return random.choice(before_after)
 
     return random.choice(pool)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  LOGO OVERLAY — watermarks every photo/video before posting
+# ══════════════════════════════════════════════════════════════════════════════
+
+LOGO_PATH = DATA_DIR / "logo.png"
+
+def _apply_logo_to_image(media_path: Path) -> Path:
+    """Composite logo onto a photo (bottom-right, 25% width). Returns temp path."""
+    from PIL import Image
+
+    with Image.open(media_path).convert("RGBA") as base:
+        with Image.open(LOGO_PATH).convert("RGBA") as logo:
+            # Scale logo to 25% of image width
+            logo_w = max(80, int(base.width * 0.25))
+            logo_h = int(logo.height * logo_w / logo.width)
+            logo   = logo.resize((logo_w, logo_h), Image.LANCZOS)
+
+            # Bottom-right with 2% margin
+            margin = max(8, int(base.width * 0.02))
+            x = base.width  - logo_w - margin
+            y = base.height - logo_h - margin
+
+            out = base.copy()
+            out.paste(logo, (x, y), logo)
+
+            tmp = media_path.parent / f"_logo_{media_path.name}"
+            if tmp.suffix.lower() in {".jpg", ".jpeg"}:
+                out = out.convert("RGB")
+            out.save(tmp, quality=95)
+            return tmp
+
+
+def _apply_logo_to_video(media_path: Path) -> Path:
+    """Overlay logo onto a video using FFmpeg (bottom-right corner)."""
+    tmp = media_path.parent / f"_logo_{media_path.stem}.mp4"
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(media_path),
+        "-i", str(LOGO_PATH),
+        "-filter_complex",
+        "[1:v]scale=iw*0.20:-1[logo];[0:v][logo]overlay=W-w-W*0.02:H-h-H*0.02",
+        "-codec:a", "copy",
+        str(tmp),
+    ]
+    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    if result.returncode != 0:
+        print(f"[LOGO] FFmpeg error: {result.stderr.decode()[:300]}")
+        return media_path  # fall back to original if ffmpeg fails
+    return tmp
+
+
+def prepare_media_with_logo(media_path: Path, is_video: bool) -> Path:
+    """
+    Returns a logo-watermarked copy of the media file.
+    If no logo is uploaded yet, returns the original path unchanged.
+    Caller must delete the returned temp file when done (if it differs from media_path).
+    """
+    if not LOGO_PATH.exists():
+        return media_path
+    try:
+        if is_video:
+            return _apply_logo_to_video(media_path)
+        else:
+            return _apply_logo_to_image(media_path)
+    except Exception as e:
+        print(f"[LOGO] Overlay failed ({e}) — posting without logo")
+        return media_path
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -644,18 +714,28 @@ def run_post():
     caption = generate_caption(category, settings, is_video=is_video)
     print(f"[BOT] Caption ({len(caption)} chars):\n{caption[:120]}...")
 
+    # Apply logo watermark
+    post_path = prepare_media_with_logo(media_path, is_video)
+    used_logo = post_path != media_path
+    if used_logo:
+        print(f"[LOGO] Watermarked → {post_path.name}")
+
     # ── Post to Feed (timeline) ─────────────────────────────────
     print("[BOT] Posting to Facebook Feed...")
-    fb_result = post_to_facebook(media_path, caption, is_video=is_video)
+    fb_result = post_to_facebook(post_path, caption, is_video=is_video)
     print(f"[BOT] Feed result: {fb_result}")
 
     # ── Post to Story ───────────────────────────────────────────
     print("[BOT] Posting to Facebook Story...")
     if is_video:
-        story_result = post_to_facebook_story(media_path)
+        story_result = post_to_facebook_story(post_path)
     else:
-        story_result = post_photo_to_story(media_path)
+        story_result = post_photo_to_story(post_path)
     print(f"[BOT] Story result: {story_result}")
+
+    # Clean up temp logo file
+    if used_logo and post_path.exists():
+        post_path.unlink()
 
     ig_result = {"success": False, "skipped": "Instagram disabled"}
     log_post(str(media_path), caption, category, fb_result, ig_result)
@@ -884,6 +964,46 @@ def get_media():
             "url":      f"/media/{m['category']}/{m['name']}",
         })
     return {"media": result, "total": len(result)}
+
+
+@app.post("/api/upload-logo")
+async def upload_logo(
+    file: UploadFile = File(...),
+    session: str = Cookie(default=None),
+):
+    """Upload the business logo used to watermark all posts."""
+    require_auth(session)
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg"}:
+        return JSONResponse({"error": "Logo must be PNG or JPG"}, status_code=400)
+    data = await file.read()
+    # Always save as PNG so transparency is preserved
+    from PIL import Image
+    import io
+    img = Image.open(io.BytesIO(data)).convert("RGBA")
+    img.save(str(LOGO_PATH), "PNG")
+    print(f"[LOGO] Saved logo → {LOGO_PATH} ({len(data)//1024}KB)")
+    return {"saved": True, "path": str(LOGO_PATH), "size_kb": round(LOGO_PATH.stat().st_size / 1024, 1)}
+
+
+@app.get("/api/logo-status")
+def logo_status(session: str = Cookie(default=None)):
+    """Check if a logo has been uploaded."""
+    require_auth(session)
+    if LOGO_PATH.exists():
+        return {"uploaded": True, "size_kb": round(LOGO_PATH.stat().st_size / 1024, 1)}
+    return {"uploaded": False}
+
+
+@app.get("/data-logo")
+def serve_logo(session: str = Cookie(default=None)):
+    """Serve the uploaded logo image for dashboard preview."""
+    require_auth(session)
+    from fastapi.responses import FileResponse
+    if LOGO_PATH.exists():
+        return FileResponse(str(LOGO_PATH), media_type="image/png")
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail="No logo uploaded")
 
 
 @app.post("/api/upload")
