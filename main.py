@@ -312,7 +312,7 @@ Rules:
 Write ONLY the post text, nothing else."""
 
         msg = claude.messages.create(
-            model="claude-3-haiku-20240307",   # fast + cheap for captions
+            model="claude-haiku-4-5-20251001",   # fast + cheap for captions
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -988,7 +988,7 @@ CONTACT:
 Make every listing unique — different angle, different opening, different energy. Never sound like a template."""
 
             msg = claude.messages.create(
-                model="claude-3-haiku-20240307",
+                model="claude-haiku-4-5-20251001",
                 max_tokens=400,
                 messages=[{"role": "user", "content": prompt}]
             )
