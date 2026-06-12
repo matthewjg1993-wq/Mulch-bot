@@ -266,8 +266,9 @@
   <div class="panel pane-media">
     <h2>🛠️ Reel Maker <span style="font-size:12px;color:#888;font-weight:normal">— pick clips, pick a vibe, bot builds the reel</span></h2>
     <div style="font-size:12px;color:#888;margin-bottom:12px">
-      Select 1–5 videos below. The bot crops them to vertical 9:16, stitches them together,
-      adds a random track from your Music Library, fades, and a hook caption — then drops the finished reel in the gallery below.
+      Select 1–5 videos below. The bot finds the most action-packed moments in each clip,
+      opens with the payoff (teaser of the result), cuts on the music's beat, loops the ending
+      back to the start for rewatches, and burns a hook caption over the first 3 seconds.
     </div>
     <div id="reel-clip-picker" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-bottom:14px">
       <div class="loading">Loading videos...</div>
@@ -278,11 +279,11 @@
         <option value="classic_country">🎸 Classic country</option>
         <option value="hard_work">💪 Hard work / heavy</option>
       </select>
-      <select id="reel-clipsecs" style="background:#0f3460;color:#fff;border:1px solid #1a4a6a;border-radius:8px;padding:9px 12px;font-size:13px">
-        <option value="5">5s per clip</option>
-        <option value="8" selected>8s per clip</option>
-        <option value="12">12s per clip</option>
-        <option value="20">20s per clip</option>
+      <select id="reel-length" style="background:#0f3460;color:#fff;border:1px solid #1a4a6a;border-radius:8px;padding:9px 12px;font-size:13px">
+        <option value="12">12s reel</option>
+        <option value="14" selected>14s reel (best reach)</option>
+        <option value="20">20s reel</option>
+        <option value="30">30s reel</option>
       </select>
       <input id="reel-hook" type="text" placeholder="Hook text (leave blank = AI writes it)"
              style="background:#0f3460;color:#fff;border:1px solid #1a4a6a;border-radius:8px;padding:9px 12px;font-size:13px;flex:1;min-width:200px">
@@ -474,10 +475,10 @@ async function buildReel() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        clips:     [...selectedClips],
-        vibe:      document.getElementById('reel-vibe').value,
-        hook:      document.getElementById('reel-hook').value.trim() || 'auto',
-        clip_secs: parseFloat(document.getElementById('reel-clipsecs').value),
+        clips:      [...selectedClips],
+        vibe:       document.getElementById('reel-vibe').value,
+        hook:       document.getElementById('reel-hook').value.trim() || 'auto',
+        total_secs: parseFloat(document.getElementById('reel-length').value),
       }),
     });
     const d = await r.json();

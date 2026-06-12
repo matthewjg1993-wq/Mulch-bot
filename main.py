@@ -386,42 +386,195 @@ def generate_reel_hook(category_hint: str = "") -> str:
         print(f"[REEL] hook generation failed: {e}")
         return fallback
 
-def _build_reel_cmd(clips: list, music: Path, out: Path, hook: str,
-                    clip_secs: float, with_text: bool) -> tuple:
-    """Build the ffmpeg command. Returns (cmd, total_duration)."""
-    durs  = []
+def _motion_best_window(clip: Path, want: float, clip_dur: float) -> float:
+    """
+    Find the start offset of the most action-packed window of length `want`.
+    Uses FFmpeg signalstats YDIF (frame-to-frame luma difference) as a motion
+    proxy — the mulcher chewing brush scores far higher than walking/setup shots.
+    Falls back to 0.0 on any failure.
+    """
+    if clip_dur <= want + 0.5:
+        return 0.0
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-i", str(clip), "-vf",
+             "scale=160:90,signalstats,metadata=print:key=lavfi.signalstats.YDIF:file=-",
+             "-an", "-f", "null", "-"],
+            capture_output=True, timeout=300)
+        times, scores, t_cur = [], [], None
+        for line in r.stdout.decode(errors="replace").splitlines():
+            line = line.strip()
+            if line.startswith("frame:") and "pts_time:" in line:
+                try:
+                    t_cur = float(line.split("pts_time:")[1].split()[0])
+                except Exception:
+                    t_cur = None
+            elif line.startswith("lavfi.signalstats.YDIF=") and t_cur is not None:
+                try:
+                    times.append(t_cur)
+                    scores.append(float(line.split("=", 1)[1]))
+                except Exception:
+                    pass
+        if len(times) < 20:
+            return 0.0
+        # slide a window, keep the highest mean motion score
+        best_start, best_score = 0.0, -1.0
+        step = max(0.5, want / 4)
+        t0 = 0.0
+        while t0 + want <= times[-1]:
+            vals = [s for t, s in zip(times, scores) if t0 <= t < t0 + want]
+            sc = sum(vals) / len(vals) if vals else 0.0
+            if sc > best_score:
+                best_score, best_start = sc, t0
+            t0 += step
+        return round(best_start, 2)
+    except Exception as e:
+        print(f"[REEL] motion analysis failed for {clip.name}: {e}")
+        return 0.0
+
+
+def _beat_grid(music: Path, max_secs: float = 40.0) -> list:
+    """
+    Detect tempo and beat timestamps in a track using pure numpy —
+    energy-flux autocorrelation over 70–180 BPM. No heavy audio deps.
+    Returns [] on failure (caller just skips beat-snapping).
+    """
+    try:
+        import numpy as np
+        r = subprocess.run(
+            ["ffmpeg", "-i", str(music), "-t", str(max_secs),
+             "-ac", "1", "-ar", "22050", "-f", "f32le", "-"],
+            capture_output=True, timeout=120)
+        pcm = np.frombuffer(r.stdout, dtype=np.float32)
+        if pcm.size < 22050 * 4:
+            return []
+        hop, frame = 512, 1024
+        n = (pcm.size - frame) // hop
+        if n < 80:
+            return []
+        idx    = np.arange(n)[:, None] * hop + np.arange(frame)[None, :]
+        energy = (pcm[idx] ** 2).sum(axis=1)
+        flux   = np.maximum(0, np.diff(energy))
+        if flux.max() <= 0:
+            return []
+        flux  = flux / flux.max()
+        sr_f  = 22050 / hop                       # analysis frames per second
+        best_bpm, best_val = 0, -1.0
+        for bpm in range(70, 181):
+            lag = int(round(sr_f * 60.0 / bpm))
+            if lag < 1 or lag >= flux.size:
+                continue
+            v = float((flux[:-lag] * flux[lag:]).sum())
+            if v > best_val:
+                best_val, best_bpm = v, bpm
+        if not best_bpm:
+            return []
+        period = 60.0 / best_bpm
+        lag_f  = sr_f * period
+        best_off, best_sum = 0, -1.0
+        for off in range(int(lag_f)):
+            grid = np.arange(off, flux.size, lag_f).astype(int)
+            s = float(flux[grid].sum())
+            if s > best_sum:
+                best_sum, best_off = s, off
+        t0, beats, t = best_off / sr_f, [], best_off / sr_f
+        while t < max_secs:
+            beats.append(round(t, 3))
+            t += period
+        print(f"[REEL] beat grid: {best_bpm} BPM, {len(beats)} beats from {music.name}")
+        return beats
+    except Exception as e:
+        print(f"[REEL] beat detection failed: {e}")
+        return []
+
+
+def _snap_cuts_to_beats(cuts: list, beats: list, tol: float = 0.45) -> list:
+    """Nudge each cut point to the nearest music beat (within tol seconds)."""
+    if not beats:
+        return cuts
+    snapped, prev = [], 0.0
+    for c in cuts:
+        nearest = min(beats, key=lambda b: abs(b - c))
+        c2 = nearest if abs(nearest - c) <= tol else c
+        c2 = max(c2, prev + 0.8)   # keep segments at least 0.8s
+        snapped.append(round(c2, 3))
+        prev = c2
+    return snapped
+
+
+def _plan_segments(clips: list, total_secs: float) -> list:
+    """
+    Payoff-first reel structure (research-backed):
+      1. TEASER  — 1.8s of the most dramatic moment (from the LAST clip = the result)
+      2. BODY    — each clip's highest-motion window, in order
+      3. FINALE  — 2.0s mirror of the teaser → seamless loop = rewatches
+    Returns [(path, start_offset, duration), ...]
+    """
+    teaser_len, finale_len = 1.8, 2.0
+    durs = {c: _video_duration(c) for c in clips}
+    clips = [c for c in clips if durs[c] > 0.5] or clips
+
+    body_total = max(2.0, total_secs - teaser_len - finale_len)
+    per = max(1.5, body_total / len(clips))
+
+    last      = clips[-1]
+    last_dur  = durs.get(last, 10.0)
+    best_last = _motion_best_window(last, max(teaser_len, finale_len), last_dur)
+
+    segs = [(last, best_last, teaser_len)]                     # teaser
     for c in clips:
-        d = _video_duration(c)
-        durs.append(min(clip_secs, d) if d > 0 else clip_secs)
-    total = sum(durs)
+        want  = min(per, max(1.0, durs.get(c, per) - 0.1))
+        start = _motion_best_window(c, want, durs.get(c, 0.0))
+        if c == last:
+            # don't replay the exact teaser moment in the body — shift past it
+            start = min(start + teaser_len, max(0.0, last_dur - want))
+        segs.append((c, round(start, 2), round(want, 2)))
+    finale_start = min(best_last, max(0.0, last_dur - finale_len))
+    segs.append((last, round(finale_start, 2), finale_len))    # loop finale
+    return segs
+
+
+def _build_reel_cmd(segs: list, music: Path, out: Path, hook: str,
+                    beats: list, with_text: bool) -> tuple:
+    """Build the ffmpeg command from planned segments. Returns (cmd, total)."""
+    # beat-snap the cut points, then recompute each segment's duration
+    cuts, acc = [], 0.0
+    for _, _, d in segs:
+        acc += d
+        cuts.append(round(acc, 3))
+    cuts  = _snap_cuts_to_beats(cuts, beats)
+    total = cuts[-1]
 
     cmd = ["ffmpeg", "-y"]
-    for c in clips:
-        cmd += ["-i", str(c)]
+    for path, _, _ in segs:
+        cmd += ["-i", str(path)]
     cmd += ["-i", str(music)]
 
-    parts = []
-    for i, d in enumerate(durs):
+    parts, prev = [], 0.0
+    for i, (path, start, _) in enumerate(segs):
+        seg_dur = round(cuts[i] - prev, 3)
+        prev    = cuts[i]
         parts.append(
-            f"[{i}:v]trim=duration={d:.2f},setpts=PTS-STARTPTS,"
+            f"[{i}:v]trim=start={start:.2f}:duration={seg_dur:.3f},setpts=PTS-STARTPTS,"
             f"scale=1080:1920:force_original_aspect_ratio=increase,"
             f"crop=1080:1920,fps=30,setsar=1[v{i}]")
-    chain = "".join(f"[v{i}]" for i in range(len(clips)))
-    parts.append(f"{chain}concat=n={len(clips)}:v=1:a=0[cat]")
+    chain = "".join(f"[v{i}]" for i in range(len(segs)))
+    parts.append(f"{chain}concat=n={len(segs)}:v=1:a=0[cat]")
 
-    fade_out_start = max(0.0, total - 0.6)
     vlabel = "[cat]"
     if with_text and hook:
+        # hook owns the first 3.4s then fades — the 3-second rule
         parts.append(
             f"{vlabel}drawtext=text='{_drawtext_escape(hook)}':font=Sans:"
             f"fontcolor=white:fontsize=58:box=1:boxcolor=black@0.45:boxborderw=18:"
-            f"x=(w-text_w)/2:y=h*0.10[txt]")
+            f"x=(w-text_w)/2:y=h*0.10:"
+            f"alpha='if(lt(t,2.6),1,max(0,1-(t-2.6)/0.8))':enable='lt(t,3.4)'[txt]")
         vlabel = "[txt]"
-    parts.append(f"{vlabel}fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out_start:.2f}:d=0.6[vout]")
+    parts.append(f"{vlabel}fade=t=in:st=0:d=0.4,fade=t=out:st={max(0.0, total - 0.5):.2f}:d=0.5[vout]")
 
-    music_idx = len(clips)
+    music_idx = len(segs)
     parts.append(
-        f"[{music_idx}:a]atrim=0:{total:.2f},asetpts=PTS-STARTPTS,"
+        f"[{music_idx}:a]atrim=0:{total:.3f},asetpts=PTS-STARTPTS,"
         f"afade=t=in:st=0:d=0.6,afade=t=out:st={max(0.0, total - 1.2):.2f}:d=1.2[aout]")
 
     cmd += [
@@ -430,12 +583,12 @@ def _build_reel_cmd(clips: list, music: Path, out: Path, hook: str,
         "-c:v", "libx264", "-preset", "fast", "-crf", "21",
         "-c:a", "aac", "-b:a", "160k",
         "-movflags", "+faststart",
-        "-t", f"{total:.2f}",
+        "-t", f"{total:.3f}",
         str(out),
     ]
     return cmd, total
 
-def _run_reel_job(job_id: str, clip_rels: list, vibe: str, hook: str, clip_secs: float):
+def _run_reel_job(job_id: str, clip_rels: list, vibe: str, hook: str, total_secs: float):
     job = reel_jobs[job_id]
     try:
         job["step"] = "checking inputs"
@@ -459,16 +612,24 @@ def _run_reel_job(job_id: str, clip_rels: list, vibe: str, hook: str, clip_secs:
             hook = generate_reel_hook(clip_rels[0].split("/")[0] if "/" in clip_rels[0] else "")
         job["hook"] = hook
 
+        job["step"] = "analyzing footage for best moments"
+        segs = _plan_segments(clips, total_secs)
+
+        job["step"] = "detecting music beats"
+        beats = _beat_grid(music)
+        if beats:
+            job["bpm_synced"] = True
+
         out = MEDIA_DIR / "reels" / f"reel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         job["step"] = "rendering with ffmpeg"
-        cmd, total = _build_reel_cmd(clips, music, out, hook, clip_secs, with_text=True)
+        cmd, total = _build_reel_cmd(segs, music, out, hook, beats, with_text=True)
         r = subprocess.run(cmd, capture_output=True, timeout=900)
 
         if r.returncode != 0 and hook:
             # drawtext often fails when no font is available — retry captionless
             print(f"[REEL] drawtext pass failed, retrying without caption: {r.stderr.decode()[-200:]}")
             job["step"] = "rendering (no caption — font unavailable)"
-            cmd, total = _build_reel_cmd(clips, music, out, hook, clip_secs, with_text=False)
+            cmd, total = _build_reel_cmd(segs, music, out, hook, beats, with_text=False)
             r = subprocess.run(cmd, capture_output=True, timeout=900)
 
         if r.returncode != 0 or not out.exists():
@@ -478,7 +639,8 @@ def _run_reel_job(job_id: str, clip_rels: list, vibe: str, hook: str, clip_secs:
         job["step"]   = "complete"
         job["output"] = f"/media/reels/{out.name}"
         job["duration"] = round(total, 1)
-        print(f"[REEL] ✅ Built {out.name} ({total:.1f}s, {len(clips)} clips, music: {music.name})")
+        print(f"[REEL] ✅ Built {out.name} ({total:.1f}s, {len(segs)} segments, "
+              f"{len(clips)} clips, beats={'yes' if beats else 'no'}, music: {music.name})")
     except Exception as e:
         job["status"] = "error"
         job["error"]  = str(e)
@@ -1386,7 +1548,7 @@ async def build_reel_endpoint(request: Request, session: str = Cookie(default=No
     clips = data.get("clips", [])
     vibe  = data.get("vibe", "modern_country")
     hook  = data.get("hook", "auto")
-    clip_secs = max(3.0, min(20.0, float(data.get("clip_secs", 8))))
+    total_secs = max(8.0, min(35.0, float(data.get("total_secs", 14))))
     if not clips:
         return JSONResponse({"error": "Select at least one video clip"}, status_code=400)
 
@@ -1394,7 +1556,7 @@ async def build_reel_endpoint(request: Request, session: str = Cookie(default=No
     reel_jobs[job_id] = {"status": "running", "step": "queued",
                           "started": datetime.now(timezone.utc).isoformat()}
     threading.Thread(target=_run_reel_job,
-                     args=(job_id, clips, vibe, hook, clip_secs),
+                     args=(job_id, clips, vibe, hook, total_secs),
                      daemon=True).start()
     return {"job_id": job_id}
 
