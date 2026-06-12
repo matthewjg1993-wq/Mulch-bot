@@ -87,6 +87,23 @@ CATEGORIES = ["mulching", "cleanup", "before_after", "edging", "landscaping", "r
 for cat in CATEGORIES:
     (MEDIA_DIR / cat).mkdir(exist_ok=True)
 
+# ── Music library — royalty-free tracks for auto-generated reels ──────────────
+MUSIC_DIR   = MEDIA_DIR / "music"
+MUSIC_VIBES = ["modern_country", "classic_country", "hard_work"]
+AUDIO_EXTS  = {".mp3", ".m4a", ".wav", ".aac", ".ogg"}
+for vibe in MUSIC_VIBES:
+    (MUSIC_DIR / vibe).mkdir(parents=True, exist_ok=True)
+
+def pick_random_track(vibe: str = None):
+    """Random track for the reel pipeline. vibe=None searches all vibes."""
+    import random as _random
+    vibes = [vibe] if vibe in MUSIC_VIBES else MUSIC_VIBES
+    tracks = []
+    for v in vibes:
+        tracks += [p for p in (MUSIC_DIR / v).iterdir()
+                   if p.suffix.lower() in AUDIO_EXTS]
+    return _random.choice(tracks) if tracks else None
+
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Mulch Boss")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -1152,6 +1169,60 @@ async def upload_media(
 def delete_media(category: str, filename: str):
     """Delete a media file."""
     path = MEDIA_DIR / category / filename
+    if path.exists():
+        path.unlink()
+        return {"deleted": filename}
+    return JSONResponse({"error": "File not found"}, status_code=404)
+
+
+# ── Music Library ──────────────────────────────────────────────────────────────
+@app.post("/api/upload-music")
+async def upload_music(
+    vibe: str = Form(...),
+    files: list[UploadFile] = File(...),
+    session: str = Cookie(default=None),
+):
+    """Upload royalty-free music tracks for the reel pipeline."""
+    require_auth(session)
+    if vibe not in MUSIC_VIBES:
+        return JSONResponse({"error": f"Invalid vibe. Use: {MUSIC_VIBES}"}, status_code=400)
+    uploaded = []
+    for file in files:
+        suffix = Path(file.filename).suffix.lower()
+        if suffix not in AUDIO_EXTS:
+            continue
+        dest = MUSIC_DIR / vibe / file.filename
+        dest.write_bytes(await file.read())
+        uploaded.append(file.filename)
+        print(f"[MUSIC] {file.filename} → music/{vibe}/")
+    return {"uploaded": uploaded, "count": len(uploaded)}
+
+
+@app.get("/api/music")
+def list_music(session: str = Cookie(default=None)):
+    """List all music tracks grouped by vibe."""
+    require_auth(session)
+    tracks = []
+    for vibe in MUSIC_VIBES:
+        for p in sorted((MUSIC_DIR / vibe).iterdir()):
+            if p.suffix.lower() not in AUDIO_EXTS:
+                continue
+            tracks.append({
+                "name":    p.name,
+                "vibe":    vibe,
+                "size_kb": round(p.stat().st_size / 1024, 1),
+                "url":     f"/media/music/{vibe}/{p.name}",
+            })
+    return {"tracks": tracks, "total": len(tracks)}
+
+
+@app.delete("/api/music/{vibe}/{filename}")
+def delete_music(vibe: str, filename: str, session: str = Cookie(default=None)):
+    """Delete a music track."""
+    require_auth(session)
+    if vibe not in MUSIC_VIBES:
+        return JSONResponse({"error": "Invalid vibe"}, status_code=400)
+    path = MUSIC_DIR / vibe / filename
     if path.exists():
         path.unlink()
         return {"deleted": filename}

@@ -268,6 +268,26 @@
     <div id="reels-list"><div class="loading">Loading reels...</div></div>
   </div>
 
+  <!-- Music Library -->
+  <div class="panel pane-media">
+    <h2>🎵 Music Library <span style="font-size:12px;color:#888;font-weight:normal">— royalty-free tracks the bot adds to reels</span></h2>
+    <div style="font-size:12px;color:#888;margin-bottom:12px">
+      Upload MP3/M4A/WAV tracks sorted by vibe. When the bot builds a reel it picks a random track that fits.
+      ⚠️ Only use royalty-free music (Epidemic Sound, Artlist, Suno, FB Sound Collection) — real songs get reels muted or blocked.
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+      <select id="music-vibe" style="background:#0f3460;color:#fff;border:1px solid #1a4a6a;border-radius:8px;padding:9px 12px;font-size:13px">
+        <option value="modern_country">🤠 Modern country</option>
+        <option value="classic_country">🎸 Classic country</option>
+        <option value="hard_work">💪 Hard work / heavy</option>
+      </select>
+      <input type="file" id="music-files" accept=".mp3,.m4a,.wav,.aac,.ogg" multiple style="display:none" onchange="uploadMusic()">
+      <button class="btn btn-green" onclick="document.getElementById('music-files').click()">⬆️ Upload Tracks</button>
+      <span id="music-upload-status" style="font-size:12px;color:#4ecca3"></span>
+    </div>
+    <div id="music-list"><div class="loading">Loading music...</div></div>
+  </div>
+
   <!-- Media Library -->
   <div class="panel pane-media">
     <h2>🖼️ Media Library</h2>
@@ -323,6 +343,60 @@ async function deleteMediaFile(category, name) {
   if (!confirm(`Delete ${name}? This can't be undone.`)) return;
   await fetch(`/api/media/${category}/${encodeURIComponent(name)}`, { method: 'DELETE' });
   loadMedia(); loadStatus();
+}
+
+// ── Music Library ──────────────────────────────────────────
+async function uploadMusic() {
+  const input = document.getElementById('music-files');
+  const vibe  = document.getElementById('music-vibe').value;
+  if (!input.files.length) return;
+  const status = document.getElementById('music-upload-status');
+  status.textContent = `Uploading ${input.files.length} track(s)...`;
+  const fd = new FormData();
+  fd.append('vibe', vibe);
+  for (const f of input.files) fd.append('files', f);
+  try {
+    const r = await fetch('/api/upload-music', { method: 'POST', body: fd });
+    const d = await r.json();
+    status.textContent = d.count ? `✅ Uploaded ${d.count} track(s)` : '⚠️ No valid audio files';
+  } catch(e) { status.textContent = '❌ Upload failed'; }
+  input.value = '';
+  setTimeout(() => status.textContent = '', 4000);
+  loadMusic();
+}
+
+const VIBE_LABELS = { modern_country: '🤠 Modern country', classic_country: '🎸 Classic country', hard_work: '💪 Hard work / heavy' };
+
+async function loadMusic() {
+  try {
+    const r = await fetch('/api/music');
+    const d = await r.json();
+    const el = document.getElementById('music-list');
+    if (!d.tracks.length) {
+      el.innerHTML = '<div class="loading">No music yet — upload royalty-free tracks above and the reel maker will use them.</div>';
+      return;
+    }
+    let html = '';
+    for (const vibe of Object.keys(VIBE_LABELS)) {
+      const tracks = d.tracks.filter(t => t.vibe === vibe);
+      if (!tracks.length) continue;
+      html += `<div style="font-size:13px;color:#4ecca3;font-weight:bold;margin:12px 0 8px">${VIBE_LABELS[vibe]} (${tracks.length})</div>`;
+      html += tracks.map(t => `
+        <div style="display:flex;align-items:center;gap:10px;background:#0f3460;border-radius:8px;padding:8px 12px;margin-bottom:8px;flex-wrap:wrap">
+          <audio controls preload="none" src="${t.url}" style="height:32px;flex:1;min-width:180px"></audio>
+          <span style="font-size:11px;color:#aaa;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.name}</span>
+          <span style="font-size:11px;color:#555">${(t.size_kb/1024).toFixed(1)}MB</span>
+          <button class="btn btn-red" style="padding:4px 10px;font-size:12px" onclick="deleteMusicTrack('${t.vibe}','${t.name.replace(/'/g, "\\'")}')">✕</button>
+        </div>`).join('');
+    }
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
+async function deleteMusicTrack(vibe, name) {
+  if (!confirm(`Delete track ${name}?`)) return;
+  await fetch(`/api/music/${vibe}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  loadMusic();
 }
 
 async function loadMedia() {
@@ -626,7 +700,7 @@ try { _savedTab = localStorage.getItem('mulch_tab') || 'home'; } catch(e) {}
 showTab(_savedTab);
 
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings(); loadPendingPost();
+loadStatus(); loadPosts(); loadMedia(); loadMusic(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings(); loadPendingPost();
 // Refresh status every 30s, pending post every 10s
 setInterval(loadStatus, 30000);
 setInterval(loadPendingPost, 10000);
