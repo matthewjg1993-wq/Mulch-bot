@@ -1292,7 +1292,9 @@ async def upload_media(
     category: str = Form(...),
     files: list[UploadFile] = File(...)
 ):
-    """Upload photos or videos to a category folder."""
+    """Upload photos or videos to a category folder. Streams to disk in 1MB
+    chunks so large videos never sit in memory and uploads start writing
+    immediately instead of buffering the whole request."""
     if category not in CATEGORIES:
         return JSONResponse({"error": f"Invalid category. Use: {CATEGORIES}"}, status_code=400)
 
@@ -1302,9 +1304,11 @@ async def upload_media(
         if suffix not in MEDIA_EXTS:
             continue
         dest = MEDIA_DIR / category / file.filename
-        dest.write_bytes(await file.read())
+        with dest.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                out.write(chunk)
         uploaded.append(file.filename)
-        print(f"[UPLOAD] {file.filename} → {category}/")
+        print(f"[UPLOAD] {file.filename} → {category}/ ({dest.stat().st_size // 1024}KB)")
 
     return {"uploaded": uploaded, "count": len(uploaded)}
 
