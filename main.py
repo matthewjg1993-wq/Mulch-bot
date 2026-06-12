@@ -83,7 +83,7 @@ DATA_DIR.mkdir(exist_ok=True)
 MEDIA_DIR.mkdir(exist_ok=True)
 
 # Media category folders
-CATEGORIES = ["mulching", "cleanup", "before_after", "edging", "landscaping"]
+CATEGORIES = ["mulching", "cleanup", "before_after", "edging", "landscaping", "reels"]
 for cat in CATEGORIES:
     (MEDIA_DIR / cat).mkdir(exist_ok=True)
 

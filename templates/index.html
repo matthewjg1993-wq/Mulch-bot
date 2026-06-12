@@ -45,6 +45,20 @@
       padding:4px 10px;border-radius:20px;font-size:12px;font-weight:bold; }
     .tag-chip .remove { cursor:pointer;color:#e94560;font-size:14px;line-height:1; }
     .tag-chip .remove:hover { color:#ff0000; }
+    .tabbar { display:flex;gap:8px;margin-bottom:20px;position:sticky;top:0;z-index:10;background:#1a1a2e;padding:10px 0; }
+    .tab-btn { flex:1;background:#16213e;border:1px solid #0f3460;color:#888;padding:12px 8px;border-radius:8px;font-size:14px;font-weight:bold;cursor:pointer; }
+    .tab-btn:hover { border-color:#4ecca3;color:#eee; }
+    .active-tab { background:#1a4a3a;border-color:#4ecca3;color:#4ecca3; }
+    .media-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px; }
+    .media-card { background:#0f3460;border-radius:8px;overflow:hidden;position:relative; }
+    .media-card img, .media-card video { width:100%;height:100px;object-fit:cover;display:block;cursor:pointer; }
+    .media-card .del { position:absolute;top:4px;right:4px;background:rgba(233,69,96,.92);color:#fff;border:none;border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:13px;line-height:1; }
+    .media-card .nm { font-size:10px;color:#888;padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .reel-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px; }
+    .reel-card { background:#0f3460;border-radius:10px;overflow:hidden;position:relative; }
+    .reel-card video { width:100%;aspect-ratio:9/16;object-fit:cover;display:block;background:#000; }
+    .reel-card .nm { font-size:11px;color:#aaa;padding:6px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .cat-title { color:#4ecca3;font-size:12px;text-transform:uppercase;margin:14px 0 8px;font-weight:bold; }
   </style>
 </head>
 <body>
@@ -56,6 +70,13 @@
 </header>
 
 <div class="container">
+
+  <!-- Tab navigation -->
+  <div class="tabbar">
+    <button class="tab-btn active-tab" data-tab="home"     onclick="showTab('home')">🏠 Home</button>
+    <button class="tab-btn"            data-tab="media"    onclick="showTab('media')">🎬 Media & Reels</button>
+    <button class="tab-btn"            data-tab="settings" onclick="showTab('settings')">⚙️ Settings</button>
+  </div>
 
   <!-- Stats row -->
   <div class="cards">
@@ -112,7 +133,7 @@
   </div>
 
   <!-- Controls -->
-  <div class="panel">
+  <div class="panel pane-home">
     <h2>⚙️ Controls</h2>
     <div class="actions">
       <button class="btn btn-green" onclick="postNow()">📤 Post Now</button>
@@ -122,7 +143,7 @@
   </div>
 
   <!-- Upload -->
-  <div class="panel">
+  <div class="panel pane-media">
     <h2>📁 Upload Photos / Videos</h2>
     <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
       <select id="upload-category">
@@ -131,6 +152,7 @@
         <option value="cleanup">Cleanup</option>
         <option value="edging">Edging</option>
         <option value="landscaping">Landscaping</option>
+        <option value="reels">🎬 Reels</option>
       </select>
       <input type="file" id="file-input" multiple accept="image/*,video/*">
       <button class="btn btn-green" onclick="uploadFiles()">Upload</button>
@@ -139,7 +161,7 @@
   </div>
 
   <!-- Logo Watermark -->
-  <div class="panel">
+  <div class="panel pane-settings">
     <h2>🖼️ Business Logo <span style="font-size:12px;color:#888;font-weight:normal">— watermarked on every post</span></h2>
     <div id="logo-status-bar" style="font-size:13px;color:#888;margin-bottom:12px">Checking...</div>
     <div class="upload-area" id="logo-drop" style="padding:20px" onclick="document.getElementById('logo-file').click()">
@@ -193,7 +215,7 @@
   </style>
 
   <!-- Voice & Vocab -->
-  <div class="panel">
+  <div class="panel pane-settings">
     <h2>🗣️ Voice Samples <span style="font-size:12px;color:#888;font-weight:normal">— teach the bot how you talk</span></h2>
     <p style="font-size:13px;color:#aaa;margin-bottom:10px">Paste examples of how you'd naturally describe a job — texts, voice memos typed out, anything in your own words. The bot will match your exact style.</p>
     <textarea id="vocab-input" rows="8" style="width:100%;background:#0a1628;color:#eee;border:1px solid #1e3a5f;border-radius:6px;padding:10px;font-size:13px;line-height:1.6;resize:vertical" placeholder="Example: Just got done clearin out a big piece of property out past Lexington, man that thing was tore up bad. Had cedar trees and privet thick as anything. Mulcher handled it good tho, owner was real happy with how it come out. Might could get yours done this week if you call us up..."></textarea>
@@ -203,50 +225,8 @@
     </div>
   </div>
 
-  <!-- Marketplace Listing -->
-  <div class="panel">
-    <h2>🛒 Facebook Marketplace Listing <span style="font-size:12px;color:#888;font-weight:normal">— refreshes every 2 weeks</span></h2>
-    <div id="marketplace-age" style="font-size:12px;color:#888;margin-bottom:12px"></div>
-
-    <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-      <button class="btn btn-green" onclick="copyListing()">📋 Copy Listing Text</button>
-      <button class="btn btn-blue" onclick="refreshListing()">🔄 Generate Fresh</button>
-    </div>
-
-    <!-- Listing text -->
-    <div id="marketplace-listing" style="background:#0f3460;border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap;line-height:1.7;color:#ddd;margin-bottom:16px">
-      <div class="loading">Generating your first listing...</div>
-    </div>
-    <div id="copy-confirm" style="color:#4ecca3;font-size:13px;margin-bottom:14px;display:none">✅ Copied! Now paste into Facebook Marketplace → Services</div>
-
-    <!-- Photo suggestions -->
-    <div style="border-top:1px solid #0f3460;padding-top:14px">
-      <div style="font-size:13px;color:#4ecca3;font-weight:bold;margin-bottom:4px">📸 Photos to attach to this listing</div>
-      <div style="font-size:12px;color:#888;margin-bottom:12px">Download these and upload them when posting to Marketplace</div>
-      <div id="marketplace-photos" style="display:flex;flex-wrap:wrap;gap:10px">
-        <div class="loading">Loading photos...</div>
-      </div>
-      <div style="font-size:11px;color:#555;margin-top:10px">
-        💡 Tip: Long-press any photo on mobile to save it, then upload to Marketplace
-      </div>
-    </div>
-
-    <!-- Step by step instructions -->
-    <div style="border-top:1px solid #0f3460;padding-top:14px;margin-top:14px">
-      <div style="font-size:13px;color:#4ecca3;font-weight:bold;margin-bottom:8px">📌 How to post to Marketplace</div>
-      <ol style="font-size:12px;color:#aaa;line-height:2;padding-left:18px">
-        <li>Tap <strong style="color:#fff">Copy Listing Text</strong> above</li>
-        <li>Open Facebook → tap <strong style="color:#fff">Marketplace</strong></li>
-        <li>Tap <strong style="color:#fff">+ Create new listing → Services</strong></li>
-        <li>Paste the text, upload the photos below</li>
-        <li>Set location to <strong style="color:#fff">Lexington, TN</strong></li>
-        <li>Hit <strong style="color:#fff">Publish</strong> ✅</li>
-      </ol>
-    </div>
-  </div>
-
   <!-- Hashtag Editor -->
-  <div class="panel">
+  <div class="panel pane-settings">
     <h2>#️⃣ Hashtag Manager</h2>
     <p style="font-size:12px;color:#888;margin-bottom:14px">These custom tags get added to every post. The bot also auto-adds location + service tags automatically.</p>
 
@@ -277,13 +257,19 @@
   </div>
 
   <!-- Recent Posts -->
-  <div class="panel">
+  <div class="panel pane-home">
     <h2>📋 Recent Posts</h2>
     <div id="posts-list"><div class="loading">Loading posts...</div></div>
   </div>
 
+  <!-- Reels Gallery -->
+  <div class="panel pane-media">
+    <h2>🎬 Reels <span style="font-size:12px;color:#888;font-weight:normal">— finished reels ready to review & post</span></h2>
+    <div id="reels-list"><div class="loading">Loading reels...</div></div>
+  </div>
+
   <!-- Media Library -->
-  <div class="panel">
+  <div class="panel pane-media">
     <h2>🖼️ Media Library</h2>
     <div id="media-list"><div class="loading">Loading media...</div></div>
   </div>
@@ -326,20 +312,57 @@ async function loadPosts() {
   } catch(e) {}
 }
 
+function showTab(t) {
+  document.querySelectorAll('.pane-home, .pane-media, .pane-settings').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.pane-' + t).forEach(el => el.style.display = 'block');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active-tab', b.dataset.tab === t));
+  try { localStorage.setItem('mulch_tab', t); } catch(e) {}
+}
+
+async function deleteMediaFile(category, name) {
+  if (!confirm(`Delete ${name}? This can't be undone.`)) return;
+  await fetch(`/api/media/${category}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  loadMedia(); loadStatus();
+}
+
 async function loadMedia() {
   try {
     const r = await fetch('/api/media');
     const d = await r.json();
-    const el = document.getElementById('media-list');
-    if (!d.media.length) { el.innerHTML = '<div class="loading">No media uploaded yet.</div>'; return; }
+
+    // Reels get their own panel with big vertical players
+    const reels   = d.media.filter(m => m.category === 'reels');
+    const reelsEl = document.getElementById('reels-list');
+    if (!reels.length) {
+      reelsEl.innerHTML = '<div class="loading">No reels yet — upload finished reels using the "🎬 Reels" category above, and they\'ll show up here for review.</div>';
+    } else {
+      reelsEl.innerHTML = `<div class="reel-grid">` + reels.map(m => `
+        <div class="reel-card">
+          ${m.type === 'video'
+            ? `<video src="${m.url}" controls preload="metadata"></video>`
+            : `<img src="${m.url}" style="width:100%;aspect-ratio:9/16;object-fit:cover;display:block">`}
+          <button class="del" onclick="deleteMediaFile('reels','${m.name.replace(/'/g, "\\'")}')" title="Delete">✕</button>
+          <div class="nm">${m.name} · ${m.size_kb > 1024 ? (m.size_kb/1024).toFixed(1) + ' MB' : m.size_kb + ' KB'}</div>
+        </div>`).join('') + `</div>`;
+    }
+
+    // Everything else in the thumbnail gallery
+    const rest = d.media.filter(m => m.category !== 'reels');
+    const el   = document.getElementById('media-list');
+    if (!rest.length) { el.innerHTML = '<div class="loading">No media uploaded yet.</div>'; return; }
     const byCategory = {};
-    d.media.forEach(m => { if (!byCategory[m.category]) byCategory[m.category] = []; byCategory[m.category].push(m); });
+    rest.forEach(m => { if (!byCategory[m.category]) byCategory[m.category] = []; byCategory[m.category].push(m); });
     el.innerHTML = Object.entries(byCategory).map(([cat, items]) =>
-      `<div style="margin-bottom:12px">
-        <div style="color:#4ecca3;font-size:12px;text-transform:uppercase;margin-bottom:6px">${cat} (${items.length})</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          ${items.map(m => `<div style="background:#0f3460;padding:6px 10px;border-radius:4px;font-size:12px">${m.name} <span style="color:#888">${m.size_kb}kb</span></div>`).join('')}
-        </div>
+      `<div class="cat-title">${cat.replace('_',' ')} (${items.length})</div>
+      <div class="media-grid">
+        ${items.map(m => `
+          <div class="media-card">
+            ${m.type === 'video'
+              ? `<video src="${m.url}" preload="metadata" muted onclick="this.paused ? this.play() : this.pause()"></video>`
+              : `<img src="${m.url}" loading="lazy" onclick="window.open('${m.url}','_blank')">`}
+            <button class="del" onclick="deleteMediaFile('${cat}','${m.name.replace(/'/g, "\\'")}')" title="Delete">✕</button>
+            <div class="nm">${m.name}</div>
+          </div>`).join('')}
       </div>`).join('');
   } catch(e) {}
 }
@@ -371,69 +394,6 @@ async function uploadFiles() {
   const d = await r.json();
   document.getElementById('upload-status').textContent = `✅ Uploaded ${d.count} file(s)`;
   loadMedia(); loadStatus();
-}
-
-async function loadMarketplace() {
-  try {
-    const r = await fetch('/api/marketplace-listing');
-    const d = await r.json();
-    const el = document.getElementById('marketplace-listing');
-    if (d.listing) {
-      el.textContent = d.listing;
-      if (d.generated_at) {
-        const age = Math.floor((Date.now() - new Date(d.generated_at)) / 86400000);
-        const next = 14 - age;
-        document.getElementById('marketplace-age').textContent =
-          `Generated ${age} day${age !== 1 ? 's' : ''} ago · Next auto-refresh in ${next > 0 ? next : 0} days`;
-      }
-    } else {
-      el.innerHTML = '<div class="loading">Generating your first listing... refresh in 15 seconds</div>';
-      setTimeout(loadMarketplace, 15000);
-    }
-  } catch(e) {}
-  // Load photo suggestions
-  loadMarketplacePhotos();
-}
-
-async function loadMarketplacePhotos() {
-  try {
-    const r = await fetch('/api/media');
-    const d = await r.json();
-    const el = document.getElementById('marketplace-photos');
-    // Only show images (not videos) — pick up to 8, prioritize before_after
-    const photos = d.media.filter(m => m.type === 'image');
-    const beforeAfter = photos.filter(m => m.category === 'before_after');
-    const others = photos.filter(m => m.category !== 'before_after');
-    // before_after first, then others, cap at 8
-    const selected = [...beforeAfter, ...others].slice(0, 8);
-    if (!selected.length) {
-      el.innerHTML = '<div style="font-size:12px;color:#555">No photos uploaded yet — upload job photos above and they\'ll appear here</div>';
-      return;
-    }
-    el.innerHTML = selected.map(m => `
-      <a href="${m.url}" target="_blank" download style="text-decoration:none">
-        <div style="width:100px;background:#0f3460;border-radius:8px;overflow:hidden;border:1px solid #1a4a6a;cursor:pointer">
-          <img src="${m.url}" style="width:100px;height:80px;object-fit:cover;display:block"
-               onerror="this.style.display='none'">
-          <div style="padding:4px 6px;font-size:10px;color:#4ecca3">${m.category}</div>
-        </div>
-      </a>`).join('');
-  } catch(e) {}
-}
-
-async function copyListing() {
-  const text = document.getElementById('marketplace-listing').textContent;
-  if (!text || text.includes('Generating')) return;
-  await navigator.clipboard.writeText(text);
-  const confirm = document.getElementById('copy-confirm');
-  confirm.style.display = 'block';
-  setTimeout(() => confirm.style.display = 'none', 4000);
-}
-
-async function refreshListing() {
-  document.getElementById('marketplace-listing').innerHTML = '<div class="loading">Generating fresh listing...</div>';
-  await fetch('/api/marketplace-refresh', {method:'POST'});
-  setTimeout(loadMarketplace, 12000);
 }
 
 // ── Hashtag Manager ──────────────────────────────────────
@@ -660,8 +620,13 @@ async function uploadLogo(file) {
   setTimeout(() => { st.textContent = ''; }, 5000);
 }
 
+// Restore last-used tab (default: home)
+let _savedTab = 'home';
+try { _savedTab = localStorage.getItem('mulch_tab') || 'home'; } catch(e) {}
+showTab(_savedTab);
+
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia(); loadMarketplace(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings(); loadPendingPost();
+loadStatus(); loadPosts(); loadMedia(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings(); loadPendingPost();
 // Refresh status every 30s, pending post every 10s
 setInterval(loadStatus, 30000);
 setInterval(loadPendingPost, 10000);
