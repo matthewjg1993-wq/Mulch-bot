@@ -16,6 +16,7 @@ import atexit
 import hashlib
 import hmac
 import subprocess
+import threading
 import requests
 import anthropic
 from pathlib import Path
@@ -339,6 +340,149 @@ def prepare_media_with_logo(media_path: Path, is_video: bool) -> Path:
     except Exception as e:
         print(f"[LOGO] Overlay failed ({e}) — posting without logo")
         return media_path
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  REEL MAKER — FFmpeg pipeline: clips → 9:16 vertical + music + hook caption
+# ══════════════════════════════════════════════════════════════════════════════
+
+reel_jobs: dict = {}   # {job_id: {"status", "step", "output", "error", "started"}}
+
+def _video_duration(path: Path) -> float:
+    """Probe a video's duration in seconds with ffprobe."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, timeout=60)
+        return float(r.stdout.decode().strip())
+    except Exception:
+        return 0.0
+
+def _drawtext_escape(text: str) -> str:
+    """Escape text for FFmpeg drawtext filter."""
+    return (text.replace("\\", "\\\\").replace(":", "\\:")
+                .replace("'", "’").replace("%", "\\%"))
+
+def generate_reel_hook(category_hint: str = "") -> str:
+    """Short punchy hook line for the top of a reel."""
+    fallback = "Watch this lot transform"
+    if not claude:
+        return fallback
+    try:
+        msg = claude.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=60,
+            messages=[{"role": "user", "content":
+                "Write ONE short punchy hook line (max 7 words, no hashtags, no quotes, "
+                "no emoji) for a forestry mulching / land clearing video reel. "
+                f"{('Job type: ' + category_hint) if category_hint else ''} "
+                "Examples: 'From jungle to driveway in 4 hours' / "
+                "'This lot was unusable yesterday'. Reply with ONLY the line."}],
+        )
+        line = msg.content[0].text.strip().strip('"\'')
+        return line[:60] if line else fallback
+    except Exception as e:
+        print(f"[REEL] hook generation failed: {e}")
+        return fallback
+
+def _build_reel_cmd(clips: list, music: Path, out: Path, hook: str,
+                    clip_secs: float, with_text: bool) -> tuple:
+    """Build the ffmpeg command. Returns (cmd, total_duration)."""
+    durs  = []
+    for c in clips:
+        d = _video_duration(c)
+        durs.append(min(clip_secs, d) if d > 0 else clip_secs)
+    total = sum(durs)
+
+    cmd = ["ffmpeg", "-y"]
+    for c in clips:
+        cmd += ["-i", str(c)]
+    cmd += ["-i", str(music)]
+
+    parts = []
+    for i, d in enumerate(durs):
+        parts.append(
+            f"[{i}:v]trim=duration={d:.2f},setpts=PTS-STARTPTS,"
+            f"scale=1080:1920:force_original_aspect_ratio=increase,"
+            f"crop=1080:1920,fps=30,setsar=1[v{i}]")
+    chain = "".join(f"[v{i}]" for i in range(len(clips)))
+    parts.append(f"{chain}concat=n={len(clips)}:v=1:a=0[cat]")
+
+    fade_out_start = max(0.0, total - 0.6)
+    vlabel = "[cat]"
+    if with_text and hook:
+        parts.append(
+            f"{vlabel}drawtext=text='{_drawtext_escape(hook)}':font=Sans:"
+            f"fontcolor=white:fontsize=58:box=1:boxcolor=black@0.45:boxborderw=18:"
+            f"x=(w-text_w)/2:y=h*0.10[txt]")
+        vlabel = "[txt]"
+    parts.append(f"{vlabel}fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out_start:.2f}:d=0.6[vout]")
+
+    music_idx = len(clips)
+    parts.append(
+        f"[{music_idx}:a]atrim=0:{total:.2f},asetpts=PTS-STARTPTS,"
+        f"afade=t=in:st=0:d=0.6,afade=t=out:st={max(0.0, total - 1.2):.2f}:d=1.2[aout]")
+
+    cmd += [
+        "-filter_complex", ";".join(parts),
+        "-map", "[vout]", "-map", "[aout]",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "21",
+        "-c:a", "aac", "-b:a", "160k",
+        "-movflags", "+faststart",
+        "-t", f"{total:.2f}",
+        str(out),
+    ]
+    return cmd, total
+
+def _run_reel_job(job_id: str, clip_rels: list, vibe: str, hook: str, clip_secs: float):
+    job = reel_jobs[job_id]
+    try:
+        job["step"] = "checking inputs"
+        clips = []
+        for rel in clip_rels[:5]:
+            p = (MEDIA_DIR / rel.lstrip("/")).resolve()
+            if not str(p).startswith(str(MEDIA_DIR.resolve())):
+                raise ValueError(f"bad path: {rel}")
+            if p.exists() and p.suffix.lower() in VIDEO_EXTS:
+                clips.append(p)
+        if not clips:
+            raise ValueError("no valid video clips selected")
+
+        music = pick_random_track(vibe)
+        if not music:
+            raise ValueError(f"no music uploaded for vibe '{vibe}' — add tracks in the Music Library first")
+        job["music"] = music.name
+
+        if hook == "auto":
+            job["step"] = "writing hook with AI"
+            hook = generate_reel_hook(clip_rels[0].split("/")[0] if "/" in clip_rels[0] else "")
+        job["hook"] = hook
+
+        out = MEDIA_DIR / "reels" / f"reel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        job["step"] = "rendering with ffmpeg"
+        cmd, total = _build_reel_cmd(clips, music, out, hook, clip_secs, with_text=True)
+        r = subprocess.run(cmd, capture_output=True, timeout=900)
+
+        if r.returncode != 0 and hook:
+            # drawtext often fails when no font is available — retry captionless
+            print(f"[REEL] drawtext pass failed, retrying without caption: {r.stderr.decode()[-200:]}")
+            job["step"] = "rendering (no caption — font unavailable)"
+            cmd, total = _build_reel_cmd(clips, music, out, hook, clip_secs, with_text=False)
+            r = subprocess.run(cmd, capture_output=True, timeout=900)
+
+        if r.returncode != 0 or not out.exists():
+            raise RuntimeError(f"ffmpeg failed: {r.stderr.decode()[-300:]}")
+
+        job["status"] = "done"
+        job["step"]   = "complete"
+        job["output"] = f"/media/reels/{out.name}"
+        job["duration"] = round(total, 1)
+        print(f"[REEL] ✅ Built {out.name} ({total:.1f}s, {len(clips)} clips, music: {music.name})")
+    except Exception as e:
+        job["status"] = "error"
+        job["error"]  = str(e)
+        print(f"[REEL] ❌ Job {job_id} failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1227,6 +1371,37 @@ def delete_music(vibe: str, filename: str, session: str = Cookie(default=None)):
         path.unlink()
         return {"deleted": filename}
     return JSONResponse({"error": "File not found"}, status_code=404)
+
+
+# ── Reel Maker ─────────────────────────────────────────────────────────────────
+@app.post("/api/build-reel")
+async def build_reel_endpoint(request: Request, session: str = Cookie(default=None)):
+    """Start a background reel build job. Body: {clips:[rel paths], vibe, hook, clip_secs}."""
+    require_auth(session)
+    data  = await request.json()
+    clips = data.get("clips", [])
+    vibe  = data.get("vibe", "modern_country")
+    hook  = data.get("hook", "auto")
+    clip_secs = max(3.0, min(20.0, float(data.get("clip_secs", 8))))
+    if not clips:
+        return JSONResponse({"error": "Select at least one video clip"}, status_code=400)
+
+    job_id = datetime.now().strftime("%H%M%S") + str(len(reel_jobs))
+    reel_jobs[job_id] = {"status": "running", "step": "queued",
+                          "started": datetime.now(timezone.utc).isoformat()}
+    threading.Thread(target=_run_reel_job,
+                     args=(job_id, clips, vibe, hook, clip_secs),
+                     daemon=True).start()
+    return {"job_id": job_id}
+
+
+@app.get("/api/reel-status/{job_id}")
+def reel_status(job_id: str, session: str = Cookie(default=None)):
+    require_auth(session)
+    job = reel_jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Unknown job"}, status_code=404)
+    return job
 
 
 @app.get("/api/pending-post")

@@ -262,6 +262,37 @@
     <div id="posts-list"><div class="loading">Loading posts...</div></div>
   </div>
 
+  <!-- Reel Maker -->
+  <div class="panel pane-media">
+    <h2>🛠️ Reel Maker <span style="font-size:12px;color:#888;font-weight:normal">— pick clips, pick a vibe, bot builds the reel</span></h2>
+    <div style="font-size:12px;color:#888;margin-bottom:12px">
+      Select 1–5 videos below. The bot crops them to vertical 9:16, stitches them together,
+      adds a random track from your Music Library, fades, and a hook caption — then drops the finished reel in the gallery below.
+    </div>
+    <div id="reel-clip-picker" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-bottom:14px">
+      <div class="loading">Loading videos...</div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <select id="reel-vibe" style="background:#0f3460;color:#fff;border:1px solid #1a4a6a;border-radius:8px;padding:9px 12px;font-size:13px">
+        <option value="modern_country">🤠 Modern country</option>
+        <option value="classic_country">🎸 Classic country</option>
+        <option value="hard_work">💪 Hard work / heavy</option>
+      </select>
+      <select id="reel-clipsecs" style="background:#0f3460;color:#fff;border:1px solid #1a4a6a;border-radius:8px;padding:9px 12px;font-size:13px">
+        <option value="5">5s per clip</option>
+        <option value="8" selected>8s per clip</option>
+        <option value="12">12s per clip</option>
+        <option value="20">20s per clip</option>
+      </select>
+      <input id="reel-hook" type="text" placeholder="Hook text (leave blank = AI writes it)"
+             style="background:#0f3460;color:#fff;border:1px solid #1a4a6a;border-radius:8px;padding:9px 12px;font-size:13px;flex:1;min-width:200px">
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-green" id="reel-build-btn" onclick="buildReel()">🎬 Build Reel</button>
+      <span id="reel-build-status" style="font-size:13px;color:#4ecca3"></span>
+    </div>
+  </div>
+
   <!-- Reels Gallery -->
   <div class="panel pane-media">
     <h2>🎬 Reels <span style="font-size:12px;color:#888;font-weight:normal">— finished reels ready to review & post</span></h2>
@@ -399,10 +430,98 @@ async function deleteMusicTrack(vibe, name) {
   loadMusic();
 }
 
+// ── Reel Maker ─────────────────────────────────────────────
+const selectedClips = new Set();
+
+function populateReelPicker(media) {
+  const el = document.getElementById('reel-clip-picker');
+  const vids = media.filter(m => m.type === 'video' && m.category !== 'reels');
+  if (!vids.length) {
+    el.innerHTML = '<div class="loading" style="grid-column:1/-1">No source videos yet — upload job videos in the categories above first.</div>';
+    return;
+  }
+  el.innerHTML = vids.map(m => {
+    const rel = `${m.category}/${m.name}`;
+    const sel = selectedClips.has(rel);
+    return `
+    <div onclick="toggleClip('${rel.replace(/'/g, "\\'")}')"
+         id="clip-${btoa(rel).replace(/[^a-zA-Z0-9]/g,'')}"
+         style="cursor:pointer;border-radius:8px;overflow:hidden;border:2px solid ${sel ? '#4ecca3' : 'transparent'};background:#0f3460;position:relative">
+      <video src="${m.url}" preload="metadata" muted style="width:100%;height:80px;object-fit:cover;display:block;pointer-events:none"></video>
+      <div style="font-size:10px;color:#aaa;padding:3px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.name}</div>
+      ${sel ? '<div style="position:absolute;top:4px;right:4px;background:#4ecca3;color:#06283d;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold">✓</div>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function toggleClip(rel) {
+  if (selectedClips.has(rel)) selectedClips.delete(rel);
+  else if (selectedClips.size >= 5) { alert('Max 5 clips per reel'); return; }
+  else selectedClips.add(rel);
+  loadMedia();
+}
+
+let _reelPollTimer = null;
+
+async function buildReel() {
+  if (!selectedClips.size) { alert('Tap at least one video clip first'); return; }
+  const btn    = document.getElementById('reel-build-btn');
+  const status = document.getElementById('reel-build-status');
+  btn.disabled = true;
+  status.textContent = '⏳ Starting build...';
+  try {
+    const r = await fetch('/api/build-reel', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        clips:     [...selectedClips],
+        vibe:      document.getElementById('reel-vibe').value,
+        hook:      document.getElementById('reel-hook').value.trim() || 'auto',
+        clip_secs: parseFloat(document.getElementById('reel-clipsecs').value),
+      }),
+    });
+    const d = await r.json();
+    if (d.error) { status.textContent = '❌ ' + d.error; btn.disabled = false; return; }
+    pollReelJob(d.job_id);
+  } catch(e) {
+    status.textContent = '❌ Build failed to start';
+    btn.disabled = false;
+  }
+}
+
+async function pollReelJob(jobId) {
+  const btn    = document.getElementById('reel-build-btn');
+  const status = document.getElementById('reel-build-status');
+  clearInterval(_reelPollTimer);
+  _reelPollTimer = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/reel-status/${jobId}`);
+      const j = await r.json();
+      if (j.status === 'running') {
+        status.textContent = `⏳ ${j.step}...`;
+      } else if (j.status === 'done') {
+        clearInterval(_reelPollTimer);
+        status.textContent = `✅ Reel ready! (${j.duration}s, music: ${j.music})${j.hook ? ' — "' + j.hook + '"' : ''}`;
+        btn.disabled = false;
+        selectedClips.clear();
+        loadMedia();
+        setTimeout(() => status.textContent = '', 12000);
+      } else {
+        clearInterval(_reelPollTimer);
+        status.textContent = '❌ ' + (j.error || 'Build failed');
+        btn.disabled = false;
+      }
+    } catch(e) {}
+  }, 2000);
+}
+
 async function loadMedia() {
   try {
     const r = await fetch('/api/media');
     const d = await r.json();
+
+    // Reel maker clip picker
+    populateReelPicker(d.media);
 
     // Reels get their own panel with big vertical players
     const reels   = d.media.filter(m => m.category === 'reels');
