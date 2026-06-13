@@ -138,8 +138,10 @@
     <div class="actions">
       <button class="btn btn-green" onclick="postNow()">📤 Post Now</button>
       <button class="btn btn-blue" id="toggle-btn" onclick="toggleBot()">⏸ Pause Bot</button>
+      <button class="btn btn-red" id="hardstop-btn" onclick="toggleHardStop()">🛑 HARD STOP</button>
     </div>
     <div id="toggle-status" class="loading"></div>
+    <div id="hardstop-status" style="margin-top:8px;font-size:14px;font-weight:bold"></div>
   </div>
 
   <!-- Upload -->
@@ -380,6 +382,37 @@ async function toggleBot() {
   const d = await r.json();
   document.getElementById('toggle-status').textContent = `Bot is now ${d.status}`;
   loadStatus();
+}
+
+async function loadPostingState() {
+  try {
+    const r = await fetch('/api/posting-state');
+    const d = await r.json();
+    renderHardStop(d.posting_enabled);
+  } catch(e) {}
+}
+
+function renderHardStop(enabled) {
+  const btn = document.getElementById('hardstop-btn');
+  const status = document.getElementById('hardstop-status');
+  if (enabled) {
+    btn.textContent = '🛑 HARD STOP';
+    btn.className = 'btn btn-red';
+    status.textContent = '';
+  } else {
+    btn.textContent = '▶️ Resume Posting';
+    btn.className = 'btn btn-green';
+    status.innerHTML = '<span style="color:#e94560">🛑 HARD STOP ACTIVE — no posts will go out (survives restarts). Click Resume when ready.</span>';
+  }
+}
+
+async function toggleHardStop() {
+  const r = await fetch('/api/hard-stop', {method:'POST'});
+  const d = await r.json();
+  renderHardStop(d.posting_enabled);
+  if (!d.posting_enabled) {
+    alert('🛑 HARD STOP is ON. Nothing will post — including anything in the approval window — until you click Resume. This stays off even if the bot restarts.');
+  }
 }
 
 function uploadOneFile(file, category, idx, total) {
@@ -662,7 +695,7 @@ try { _savedTab = localStorage.getItem('mulch_tab') || 'home'; } catch(e) {}
 showTab(_savedTab);
 
 // Load everything on start
-loadStatus(); loadPosts(); loadMedia(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings(); loadPendingPost();
+loadStatus(); loadPosts(); loadMedia(); loadHashtags(); loadVocab(); loadLogoStatus(); loadLogoSettings(); loadPendingPost(); loadPostingState();
 // Refresh status every 30s, pending post every 10s
 setInterval(loadStatus, 30000);
 setInterval(loadPendingPost, 10000);

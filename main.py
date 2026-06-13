@@ -172,6 +172,7 @@ def load_settings() -> dict:
         "custom_hashtags": [],
         "cta":             f"Call or text us for a FREE quote: {BUSINESS_PHONE}",
         "auto_post":       True,
+        "posting_enabled": True,    # persistent HARD STOP — false = nothing posts, survives redeploys
     }
     if SETTINGS_FILE.exists():
         try:
@@ -719,6 +720,17 @@ def post_to_instagram(media_path: Path, caption: str, is_video: bool) -> dict:
 
 def _execute_post(media_path: Path, caption: str, category: str, is_video: bool):
     """Upload and publish a post to Facebook feed + story. Used by both approval and post-now."""
+    # ── HARD STOP — single chokepoint every post path passes through ──
+    # Persistent flag (survives redeploys) + in-memory pause. If either says
+    # stop, nothing posts. This is the definitive kill switch.
+    if not load_settings().get("posting_enabled", True):
+        print("[BOT] 🛑 HARD STOP active — posting disabled, refusing to post")
+        bot_state["last_post_result"] = "🛑 blocked: hard stop active"
+        return
+    if not bot_state["running"]:
+        print("[BOT] ⏸ Paused — refusing to post")
+        bot_state["last_post_result"] = "⏸ blocked: bot paused"
+        return
     print(f"\n{'='*55}")
     print(f"[BOT] Posting — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
     print(f"[BOT] {media_path.name} ({category}) | {'VIDEO' if is_video else 'PHOTO'}")
@@ -797,6 +809,11 @@ def generate_pending_post():
 def check_pending_expiry():
     """Runs every 30s — auto-posts the pending post if the 15-min window has passed."""
     if not pending_post["active"]:
+        return
+    # If posting is hard-stopped or paused, clear the pending post instead of firing
+    if not load_settings().get("posting_enabled", True) or not bot_state["running"]:
+        print("[PENDING] 🛑 Hard stop / pause active — discarding pending post (not posting)")
+        pending_post["active"] = False
         return
     if datetime.now(timezone.utc).timestamp() >= pending_post["expires_at"]:
         print("[PENDING] ⏰ Window expired — auto-posting")
@@ -1218,6 +1235,29 @@ def toggle_bot():
     status = "running" if bot_state["running"] else "paused"
     print(f"[BOT] {status.upper()} by user")
     return {"running": bot_state["running"], "status": status}
+
+
+@app.post("/api/hard-stop")
+def hard_stop(session: str = Cookie(default=None)):
+    """Persistent HARD STOP — flips posting_enabled and saves it to disk so it
+    survives redeploys. When OFF, no post can fire from any path. Also clears
+    any pending post immediately."""
+    require_auth(session)
+    s = load_settings()
+    s["posting_enabled"] = not s.get("posting_enabled", True)
+    save_settings(s)
+    if not s["posting_enabled"]:
+        pending_post["active"] = False   # kill anything queued right now
+    state = "ENABLED" if s["posting_enabled"] else "HARD-STOPPED"
+    print(f"[BOT] 🛑 Posting {state} by user (persistent)")
+    return {"posting_enabled": s["posting_enabled"], "state": state}
+
+
+@app.get("/api/posting-state")
+def posting_state(session: str = Cookie(default=None)):
+    require_auth(session)
+    return {"posting_enabled": load_settings().get("posting_enabled", True),
+            "running": bot_state["running"]}
 
 
 @app.get("/api/settings")
